@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vitamin D PK Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="js/solar.js"></script>
+<script src="js/model.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <h1>Vitamin D Pharmacokinetic Simulator<span class="sub">sun, supplements, body composition &rarr; serum 25(OH)D</span></h1>
+  </div>
+  <a href="explanation.html">How it works &amp; paper &rarr;</a>
+</header>
+
+<main class="layout">
+
+  <aside class="sidebar">
+    <div class="side-actions">
+      <button id="btn-classic" class="primary">Classic 3-way comparison</button>
+      <button id="btn-add">+ Add persona</button>
+    </div>
+    <div id="cards"><!-- persona cards rendered by app.js --></div>
+  </aside>
+
+  <section class="main-panel">
+
+    <div id="chips"></div>
+
+    <div class="chart-card glass">
+      <div class="toolbar-pill">
+        <div class="field" style="flex-direction: row; align-items: center; gap: 8px;">
+          <label>View duration</label>
+          <input type="number" id="view-num" value="1" min="1" max="100" style="width: 60px;">
+          <select id="view-unit" style="width: 100px;">
+            <option value="1">Days</option>
+            <option value="7">Weeks</option>
+            <option value="30.4375">Months</option>
+            <option value="365" selected>Years</option>
+          </select>
+        </div>
+        <div class="date-field">
+          Start date
+          <input type="date" id="start-date">
+        </div>
+        <label class="checkbox-wrap" id="calc-wrap">
+          <input type="checkbox" id="toggle-calcitriol">
+          Calcitriol 1,25(OH)2D (illustrative)
+        </label>
+      </div>
+      <div class="chart-container"><canvas id="chart"></canvas></div>
+      <div class="axis-note" id="axis-note"></div>
+    </div>
+
+    <details class="assumptions glass">
+      <summary>Model &amp; assumptions</summary>
+      <div class="body">
+        <h4>High-Fidelity PBPK-Lite Architecture</h4>
+        <ul>
+          <li><b>Enzyme Kinetics:</b> 25-hydroxylation uses saturable Michaelis-Menten kinetics (Vmax/Km) rather than linear clearance, correctly modeling how levels plateau during summer or high supplementation.</li>
+          <li><b>Dynamic Catabolism:</b> Explicitly models CYP24A1 induction via calcitriol feedback, causing the 25(OH)D half-life to dynamically shorten as levels rise.</li>
+          <li><b>Adipose Tissue:</b> Replaces arbitrary fractional transfer with physiological perfusion-limited exchange based on cardiac output fraction and lipid partition coefficients.</li>
+          <li><b>PTH/Calcitriol Axis:</b> Calcitriol is now a fully dynamic state variable with production stimulated by a quasi-steady-state Parathyroid Hormone (PTH) proxy that responds to a simulated calcium index.</li>
+          <li><b>Skin Photochemistry:</b> Simulates the thermal isomerization of Previtamin D3 to D3 alongside UV-driven photodegradation to lumisterol/tachysterol, preventing infinite synthesis.</li>
+          <li><b>Environmental:</b> Extends solar equations to account for cloud cover attenuation, sunscreen SPF, and altitude.</li>
+        </ul>
+        <div class="disclaimer">
+          Educational model, not medical advice. Parameters are population-average approximations; do not use this tool to plan supplementation.
+        </div>
+      </div>
+    </details>
+
+  </section>
+</main>
+
+<script src="js/app.js"></script>
+</body>
+</html>

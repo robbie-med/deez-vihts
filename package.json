@@ -1,0 +1,10 @@
+{
+  "name": "vitamin-d-pk-simulator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Interactive vitamin D pharmacokinetic simulator (static web app, no build step).",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "scenarios": "node scripts/run-scenarios.mjs"
+  }
+}

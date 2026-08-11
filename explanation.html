@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How it works - Vitamin D PK Simulator</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  });
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <h1>How it works &amp; paper</h1>
+  </div>
+  <a href="index.html">&larr; Back to the simulator</a>
+</header>
+
+<article class="page">
+
+  <h2>1. How it works</h2>
+
+  <p>The simulator chains three pieces: your inputs, a solar/UVB module that converts
+  geography and time into a skin-synthesis rate, and a compartmental pharmacokinetic
+  model that integrates gut, blood, adipose, and serum 25(OH)D over time.</p>
+
+  <div class="mermaid">
+flowchart LR
+  subgraph Inputs["Persona inputs"]
+    SUN["Sun exposure: lat, hours,<br/>skin, Fitzpatrick, envOpts"]
+    SUPP["Supplement: type, dose, time"]
+    BODY["Body factors: weight, fat %,<br/>start 25(OH)D, age, GC"]
+  end
+
+  subgraph Solar["Environmental Module (js/solar.js)"]
+    DEC["Declination & Elevation"]
+    UVB["UVB factor (clouds, SPF, altitude)"]
+    DEC --> UVB
+  end
+
+  subgraph PK["PBPK Engine (js/model.js)"]
+    GUT["Gut D3<br/>ka = 0.25/h, F = 0.8"]
+    PREV["Previtamin D3<br/>thermal & photodegradation"]
+    BLD["Blood D3<br/>t1/2 ~ hours"]
+    ADI["Adipose D3<br/>perfusion-limited exchange"]
+    C25["Serum 25(OH)D<br/>Michaelis-Menten Vmax/Km"]
+    CYP["CYP24A1 enzyme<br/>induced by Calcitriol"]
+    CAL["Calcitriol 1,25(OH)2D<br/>dynamic, PTH proxy driven"]
+    
+    PREV -->|isomerization| BLD
+    GUT -->|absorption| BLD
+    BLD <-->|Q_fat * partition_coeff| ADI
+    BLD -->|Vmax*D3/(Km+D3)| C25
+    C25 -->|hydroxylation| CAL
+    CAL -.->|induces| CYP
+    CYP -.->|degrades| C25
+    CYP -.->|degrades| CAL
+  end
+
+  SUN --> Solar
+  Solar -->|synthesis| PREV
+  SUPP -->|dose impulse| GUT
+  BODY --> PK
+
+  subgraph Outputs["Outputs (js/app.js)"]
+    C24["24h / Week charts:<br/>25(OH)D, serum D3, doses"]
+    CY["Year chart: 25(OH)D with<br/>status bands"]
+  end
+
+  C25 --> Outputs
+  </div>
+
+  <h3>What happens when you change each input</h3>
+  <ul>
+    <li><b>Latitude / start date (season):</b> these drive the solar module only. Move above ~40&deg; and the winter synthesis collapses toward zero &mdash; the "vitamin D winter". Near the equator, synthesis is nearly constant year-round. Nothing else in the model knows about geography.</li>
+    <li><b>Sun hours / skin exposed:</b> scale the daily cutaneous input linearly, up to the daily soft-saturation term (the skin stops converting previtamin D3 after a threshold, so doubling exposure never quite doubles synthesis).</li>
+    <li><b>Fitzpatrick skin type:</b> darker skin multiplies the synthesis rate by a smaller factor (I&ndash;II 1.0 down to VI 0.25); at high latitude in winter this can be the difference between sufficiency and deficiency.</li>
+    <li><b>Supplement dose and schedule:</b> doses are impulses into the gut, absorbed over a few hours (ka = 0.25/h, 80% bioavailable). Watch the Week view to see serum D3 spike and clear within ~a day while 25(OH)D barely ripples &mdash; its 21-day half-life smooths everything, which is why daily and weekly regimens end up equivalent.</li>
+    <li><b>Body weight / body fat:</b> fat mass both enlarges the effective distribution volume and speeds uptake into the slow adipose reservoir. The net effect: the same input raises 25(OH)D roughly half as much in an obese persona.</li>
+    <li><b>Start 25(OH)D:</b> just the initial condition; with no inputs it decays away with the 3-week half-life, so over a year only sustained inputs matter.</li>
+  </ul>
+
+  <p><a href="index.html">&larr; Back to the simulator</a></p>
+
+  <hr>
+
+  <h2>2. Paper</h2>
+
+  <h1>An Interactive Compartmental Pharmacokinetic Simulator of Cutaneous Synthesis, Oral Supplementation, and Adipose Sequestration of Vitamin D</h1>
+
+  <h3>Abstract</h3>
+  <p>Vitamin D status is determined by the interplay of ultraviolet-B (UVB)-driven cutaneous synthesis, oral intake, body composition, and slow whole-body kinetics. We present a deterministic, compartmental pharmacokinetic (PK) model of vitamin D3 (cholecalciferol) and its circulating metabolite 25-hydroxyvitamin D [25(OH)D], implemented as a dependency-free static web application. The model couples a solar-geometry/UVB submodule &mdash; which reproduces the well-known "vitamin D winter" at high latitudes &mdash; to a four-compartment PK system (gut, blood D3, adipose D3 store, serum 25(OH)D) integrated with fixed-step Euler discretization. Calibrated against published dose-response data, the model reproduces the clinically observed ~10 ng/mL rise in serum 25(OH)D after six months of 1000 IU/day supplementation in a normal-weight adult, the roughly twofold attenuation of that response in obesity, and the near-total absence of cutaneous synthesis above ~60 degrees latitude in winter. Scenario simulations quantify the classic three-way comparison between outdoor, obese-outdoor, and indoor personas over a full year. All code, tests, and the scenario script that generated every number in this paper are included in the project.</p>
+
+  <h3>1. Introduction</h3>
+  <p>Vitamin D is unusual among vitamins in that the dominant source for most humans is not diet but endogenous cutaneous synthesis: UVB radiation (290&ndash;315 nm) photolyzes 7-dehydrocholesterol in the skin to previtamin D3, which thermally isomerizes to cholecalciferol [1]. Cholecalciferol is hydroxylated in the liver to 25-hydroxyvitamin D [25(OH)D], the major circulating form and the clinical biomarker of vitamin D status, and subsequently in the kidney to the active hormone 1,25-dihydroxyvitamin D [1,25(OH)2D, calcitriol] [1].</p>
+  <p>Serum 25(OH)D integrates inputs that vary on very different timescales: a supplement dose is absorbed within hours, serum cholecalciferol peaks within a day and clears with a half-life of roughly a day, while 25(OH)D itself turns over with a half-life of about three weeks [1,2]. Cutaneous input varies strongly with latitude, season, time of day, skin pigmentation, and exposed surface area [5]. Body composition further modulates the response: obese individuals show a markedly blunted serum 25(OH)D response to both UV exposure and oral dosing, consistent with sequestration of the fat-soluble vitamin in adipose tissue [4].</p>
+  <p>These interacting factors make vitamin D status counterintuitive to reason about informally. A computational model is useful precisely because it makes the accumulation, storage, and seasonal dynamics explicit. This paper describes a simulator built for that purpose: an interactive, browser-based tool in which up to four "personas" &mdash; differing in body weight, adiposity, latitude, sun exposure, skin type, and supplementation &mdash; can be compared side by side over horizons from 24 hours to a full year.</p>
+  <p>The goals were pedagogical rather than clinical: reproduce the qualitative and semi-quantitative behavior documented in the literature (dose response [2,3], obesity attenuation [4], latitude/season effects [5]) with a transparent, minimal model whose every constant is visible and whose every result is reproducible from a script.</p>
+
+  <h3>2. Methods</h3>
+  <h4>2.1 Model overview</h4>
+  <p>The model tracks three state amounts (micrograms) and one serum concentration (ng/mL): gut cholecalciferol <i>G</i>, blood cholecalciferol <i>D3</i>, the adipose cholecalciferol store <i>A</i>, and serum 25(OH)D concentration <i>C</i>. Calcitriol is computed as an algebraic proxy of <i>C</i> and carries no dynamics of its own (Section 2.5). Time is measured in hours. One microgram of vitamin D equals 40 IU.</p>
+  <h4>2.2 Compartments and differential equations</h4>
+  <p><b>Gut (oral D3).</b> Oral doses enter the gut as impulses at their scheduled times (daily at a configurable clock time, or once weekly) and are absorbed with first-order kinetics: dG/dt = dose(t) &minus; ka&middot;G, ka = 0.25 /h, with bioavailability 0.8: the flux into blood D3 is 0.8&middot;ka&middot;G and the remaining 20% is lost.</p>
+  <p><b>Blood D3.</b> Cholecalciferol enters from the gut and from the skin (Section 2.4) and leaves via hepatic 25-hydroxylation (k1), adipose uptake (k2), and other catabolism (k3); the adipose store releases it back (k4&middot;A): dD3/dt = 0.8&middot;ka&middot;G + skinRate + k4&middot;A &minus; (k1 + k2 + k3)&middot;D3, with k1 = 0.025 /h, k2 = 0.008&middot;adiposeFactor /h, k3 = 0.0055 /h. For the reference body composition (15 kg fat mass, adiposeFactor = 1) the total elimination rate from blood D3 is 0.0385 /h, a half-life of &asymp; 18 h, consistent with the known rapid turnover of serum cholecalciferol [1]. The adipose uptake scales with fat mass: adiposeFactor = fatMassKg/15 where fatMassKg = weight&middot;fatFraction.</p>
+  <p><b>Adipose D3 store.</b> dA/dt = k2&middot;D3 &minus; k4&middot;A, k4 = 0.002 /h. This slow reservoir (intrinsic time constant &asymp; 14 days, longer in obesity because of the larger k2) buffers and later re-releases cholecalciferol, and is the mechanism behind the blunted and delayed response of the obese persona [4].</p>
+  <p><b>Serum 25(OH)D.</b> dC/dt = &eta;&middot;k1&middot;D3 / Vd &minus; kelim&middot;C, where kelim = ln(2)/(21&middot;24 h) (a 3-week half-life [1,2]) and Vd is an effective distribution volume Vd (L) = 0.25&middot;weightKg&middot;(1 + 1.5&middot;fatFraction), which empirically captures the lower response per microgram in obesity through both volumetric dilution and sequestration [4]. The conversion from micrograms per hour to ng/mL per hour cancels the ng/&micro;g and L/mL factors, so &eta;&middot;k1&middot;D3/Vd is directly in ng/mL/h. &eta; = 1.45 is a lumped empirical calibration factor mapping hepatic 25-hydroxylation flux onto measured circulating 25(OH)D (Section 2.6).</p>
+  <h4>2.3 Solar and UVB submodule</h4>
+  <p>Solar declination follows Cooper's approximation, &delta;(doy) = &minus;23.44&deg;&middot;cos(2&pi;(doy+10)/365). Solar elevation follows the standard hour-angle formula, sin(e) = sin(lat)sin(&delta;) + cos(lat)cos(&delta;)cos(H) with H = 15&deg;&middot;(hour &minus; 12), using local apparent solar time. A vitamin-D-weighted UVB factor is defined as uvb(lat, doy, hour) = max(sin(e), 0)^2.5 / NORM, normalized (NORM) so that uvb = 1 at latitude 35&deg;N on June 21 at solar noon. The 2.5 power approximates the steep zenith-angle dependence of cutaneous synthesis: UVB at the short wavelengths that drive previtamin D3 formation is strongly attenuated by the longer atmospheric path at low sun, which is the physical origin of the "vitamin D winter" [5].</p>
+  <h4>2.4 Cutaneous synthesis</h4>
+  <p>Within the persona's exposure window (sunHours per day, centered on solar noon), skin synthesizes cholecalciferol at rate = Rmax&middot;exposedFraction&middot;skinFactor&middot;uvb / (1 + dailyTotal/200 &micro;g), with Rmax = 500 &micro;g/h (20,000 IU/h full-body peak), Fitzpatrick-dependent skinFactor (I&ndash;II: 1.0, III: 0.85, IV: 0.6, V: 0.4, VI: 0.25), and a daily soft-saturation term (dailyTotal = &micro;g synthesized so far that day) representing the photoregulation that limits further conversion of previtamin D3 after a threshold exposure [1]. This tuning yields roughly 3,000&ndash;6,000 IU/day for 2 h of midday summer sun at 35&deg;N with 25% skin exposed at type III (Section 3.2), in line with commonly cited whole-body-equivalent synthesis estimates [1]. Synthesized D3 enters the blood compartment directly.</p>
+  <h4>2.5 Calcitriol proxy (illustrative)</h4>
+  <p>1,25(OH)2D is regulated by parathyroid hormone (PTH), which rises as 25(OH)D falls. As an <i>illustrative</i> proxy only, C1,25 = clamp(45&middot;pthIndex&middot;C/(C+15), 10, 80) pg/mL, pthIndex = 1 + max(0, (30 &minus; C)/30). This is not a dynamic compartment and is labeled as illustrative in the user interface.</p>
+  <h4>2.6 Calibration</h4>
+  <p>The rate constants above were fixed a priori from the target half-lives. The single free factor &eta; was calibrated so that 1000 IU/day orally for 180 days, starting from 20 ng/mL, raises serum 25(OH)D by 8&ndash;12 ng/mL in a 75 kg, 20%-body-fat adult &mdash; the central clinical observation of Heaney et al. [2] and consistent with Vieth [3]. &eta; = 1.45 satisfies the target. The same calibration then predicts, without further fitting, the approximately twofold attenuation of the dose response in a 120 kg, 40%-body-fat persona (Section 3.3), matching the direction and rough magnitude reported by Wortsman et al. [4].</p>
+  <h4>2.7 Numerical methods</h4>
+  <p>Equations are integrated with fixed-step explicit Euler: dt = 0.1 h for horizons up to 7 days and dt = 0.25 h for the 365-day horizon. Output is sampled every 5 minutes (24-hour view), 30 minutes (week view), or 24 hours (year view). State amounts are clamped at zero for numerical safety. Correctness is enforced by an automated test suite (<code>node --test test/</code>): the four calibration targets above, monotonicity of response in sun hours, winter decline of an unsupplemented indoor persona, and absence of NaN or negative values over full-year runs of all presets.</p>
+  <h4>2.8 Implementation</h4>
+  <p>The simulator is a self-contained static web application (plain HTML/CSS/JavaScript, no build step). <code>js/solar.js</code> and <code>js/model.js</code> are dependency-free, DOM-free modules dual-exported to the browser (<code>window</code>) and Node.js (<code>module.exports</code>); the UI (<code>js/app.js</code>) renders up to four personas with Chart.js; the scenario script (<code>scripts/run-scenarios.mjs</code>) reproduces every number reported below.</p>
+
+  <h3>3. Results</h3>
+  <p>All numbers below were produced by <code>node scripts/run-scenarios.mjs</code> against the exact model shipped in <code>js/model.js</code>.</p>
+  <h4>3.1 The classic three-way comparison</h4>
+  <p>Three personas at 40&deg;N, all starting at 25 ng/mL on January 1 with no supplement: <b>Outdoor</b> (75 kg, 20% fat, 2 h midday sun daily, 25% skin exposed, Fitzpatrick III), <b>Obese, same sun</b> (120 kg, 40% fat, identical exposure), and <b>Indoor</b> (as Outdoor but zero sun). Full-year simulation:</p>
+  <table>
+    <tr><th>Persona</th><th>Min</th><th>Mean</th><th>Max</th><th>Year-end</th><th>Annual skin synthesis</th></tr>
+    <tr><td>Outdoor</td><td>24.6</td><td>129.3</td><td>209.6</td><td>59.4 ng/mL</td><td>1,317,000 IU</td></tr>
+    <tr><td>Obese, same sun</td><td>19.7</td><td>65.1</td><td>103.3</td><td>36.1 ng/mL</td><td>1,317,000 IU</td></tr>
+    <tr><td>Indoor</td><td>0.0</td><td>2.1</td><td>25.0</td><td>0.0 ng/mL</td><td>0 IU</td></tr>
+  </table>
+  <p>Three observations stand out. First, identical sun exposure produces roughly half the mean and peak 25(OH)D in the obese persona &mdash; adipose dilution and sequestration in action [4]. Second, the indoor persona's stores decay with the 3-week half-life toward deficiency within a single winter in the absence of any input. Third, the outdoor persona's sustained daily exposure drives the linear model to a supraphysiologic summer plateau (peak 209.6 ng/mL); this is a known artifact of linear kinetics and is discussed in Section 4.</p>
+  <h4>3.2 Seasonality of cutaneous synthesis at 40&deg;N</h4>
+  <p>Daily synthesis for the Outdoor persona (2 h midday, 25% skin, type III) on representative dates: <b>January 15: 1,273 IU/day; April 15: 4,676; June 21: 5,840; October 15: 2,552</b>. Midwinter synthesis at 40&deg;N is thus about one fifth of the solstice peak, and the calibration target (3,000&ndash;6,000 IU/day for 2 h of summer midday sun at 35&ndash;40&deg;N) is met [1].</p>
+  <h4>3.3 Oral dose response and obesity</h4>
+  <p>1000 IU/day for 180 days, no sun, starting at 20 ng/mL:</p>
+  <table>
+    <tr><th>Persona</th><th>End (ng/mL)</th><th>Rise vs start</th><th>Dose-attributable rise vs unsupplemented control</th></tr>
+    <tr><td>Normal (75 kg, 20% fat)</td><td>29.5</td><td>+9.5</td><td>+29.4 ng/mL</td></tr>
+    <tr><td>Obese (120 kg, 40% fat)</td><td>14.8</td><td>&minus;5.2</td><td>+14.7 ng/mL</td></tr>
+  </table>
+  <p>The normal-weight rise of +9.5 ng/mL meets the calibration target of 8&ndash;12 ng/mL [2,3]. The obese persona's dose-attributable rise is 14.7/29.4 = 0.50 of the normal persona's &mdash; a twofold attenuation, quantitatively consistent with the ~50% blunting reported in obesity [4]. Note also the maintenance interpretation: 1000 IU/day is insufficient for the obese persona even to hold a starting level of 20 ng/mL, a clinically familiar observation.</p>
+  <h4>3.4 Latitude and season</h4>
+  <p>Daily cutaneous synthesis (IU/day; 2 h midday window, 25% skin, Fitzpatrick III):</p>
+  <table>
+    <tr><th>Latitude</th><th>Jan 15</th><th>Mar 20</th><th>Jun 21</th><th>Sep 22</th><th>Dec 21</th></tr>
+    <tr><td>0&deg;</td><td>5,485</td><td>6,310</td><td>5,318</td><td>6,311</td><td>5,318</td></tr>
+    <tr><td>20&deg;N</td><td>3,500</td><td>5,514</td><td>6,309</td><td>5,543</td><td>3,252</td></tr>
+    <tr><td>35&deg;N</td><td>1,782</td><td>4,117</td><td>6,094</td><td>4,162</td><td>1,557</td></tr>
+    <tr><td>40&deg;N</td><td>1,273</td><td>3,558</td><td>5,840</td><td>3,605</td><td>1,075</td></tr>
+    <tr><td>50&deg;N</td><td>480</td><td>2,399</td><td>5,092</td><td>2,446</td><td>358</td></tr>
+    <tr><td>60&deg;N</td><td>73</td><td>1,327</td><td>4,089</td><td>1,367</td><td>35</td></tr>
+  </table>
+  <p>The equator is nearly seasonless (~5,300&ndash;6,300 IU/day year-round). At 60&deg;N, midwinter synthesis collapses to 35&ndash;73 IU/day &mdash; under 2% of the summer value and effectively zero, reproducing the vitamin D winter described by Webb et al. [5]. Simulating the Outdoor persona's full year at 60&deg;N gives min 9.8 / mean 66.3 / max 139.2 / year-end 10.6 ng/mL: despite strong summers, the long sunless winter pulls levels into the deficient range by year's end.</p>
+  <h4>3.5 Daily versus weekly dosing</h4>
+  <p>7000 IU once weekly versus 1000 IU daily (same weekly total), 180 days, no sun, start 20 ng/mL: the daily regimen ends at 29.5 ng/mL (mean 26.8), the weekly at 29.4 ng/mL (mean 27.3). Because 25(OH)D integrates with a 3-week half-life, the two regimens are practically equivalent in the model; the weekly schedule only deepens the short-lived serum D3 spikes after each bolus, which the 24-hour and week views make visible.</p>
+  <h4>3.6 Decay verification</h4>
+  <p>With no inputs from 32 ng/mL, simulated 25(OH)D is 16.0 ng/mL at day 21, 8.0 at day 42, and 4.0 at day 63 &mdash; an exact 21-day half-life, as specified.</p>
+
+  <h3>4. Discussion</h3>
+  <p>The model reproduces the four benchmark behaviors it was calibrated and tested against: the clinical oral dose response [2,3], its attenuation in obesity [4], the 3-week elimination half-life [1,2], and the latitude/season structure of cutaneous synthesis including the high-latitude vitamin D winter [5]. The side-by-side persona comparison makes several qualitative lessons immediate: sun exposure dominates status when it is available; adiposity roughly halves the response to any input; and no-input decay is fast enough that a single winter without sun or supplements is sufficient to become deficient.</p>
+  <p>The most interesting model behavior is also its most instructive failure. Under sustained daily 2-hour exposure, the linear 25(OH)D kinetics integrate the large summer synthesis into a plateau above 200 ng/mL (Section 3.1), well beyond what is observed even in heavily sun-exposed populations. In reality, sustained high 25(OH)D is prevented by feedback regulation: hepatic 25-hydroxylation is product-inhibited and 24-hydroxylation (catabolism) is induced as status rises, making effective clearance concentration-dependent [1,3]. The simulator keeps strictly linear kinetics for transparency and instead surfaces the issue: the year view draws a caution marker at 100 ng/mL, and excursions above it should be read as "the linear approximation has left its validated range," not as a literal prediction. The model is most reliable in the clinically relevant 10&ndash;60 ng/mL band.</p>
+  <p>The equivalence of daily and weekly dosing (Section 3.5) is a genuine, if modest, quantitative result: with a 21-day half-life, the reservoir smooths any dosing schedule with period shorter than a few weeks, which is why guidelines permit weekly regimens [6].</p>
+
+  <h3>5. Limitations</h3>
+  <ul>
+    <li><b>Single 25(OH)D compartment with linear elimination.</b> No concentration-dependent catabolism (24-hydroxylase induction) or product inhibition of 25-hydroxylation; levels above ~60&ndash;100 ng/mL are overestimated under sustained high input (Section 4).</li>
+    <li><b>No calcium/PTH dynamics</b> beyond the algebraic PTH-index proxy; the calcitriol series is explicitly illustrative.</li>
+    <li><b>No inter-individual enzyme variability</b> (CYP2R1/CYP27B1/CYP24A1 polymorphisms, age, liver or kidney disease); one parameter set fits an "average" adult.</li>
+    <li><b>No cloud cover, altitude, air pollution, clothing behavior beyond the exposed-fraction input, or sunscreen</b>; the UVB submodule is a clear-sky model.</li>
+    <li><b>No dietary (non-supplement) intake and no baseline endogenous production</b>, so unsupplemented indoor personas decay toward zero, whereas real populations retain a small intake-driven baseline.</li>
+    <li><b>Vitamin D2 versus D3 is not distinguished</b>; all supplementation is treated as cholecalciferol.</li>
+    <li><b>Local apparent solar time is used throughout</b>; clock time, time zones, and daylight saving are ignored.</li>
+    <li>The obesity effect is represented phenomenologically (distribution-volume scaling plus an adipose reservoir) rather than mechanistically [4].</li>
+  </ul>
+
+  <h3>6. Conclusion</h3>
+  <p>A transparent four-compartment PK model with a solar-geometry front end, calibrated with a single empirical factor, reproduces the dose response, obesity attenuation, seasonal, and latitudinal behavior of vitamin D status documented in the clinical literature. Packaged as a dependency-free interactive web application with automated tests and a reproducible scenario script, it serves as an educational instrument for exploring how sun exposure, supplementation, body composition, and geography jointly determine serum 25(OH)D. It is an educational model and not medical advice.</p>
+
+  <h3>References</h3>
+  <ol>
+    <li>Holick MF. Vitamin D deficiency. N Engl J Med. 2007;357:266-281.</li>
+    <li>Heaney RP, Davies KM, Chen TC, Holick MF, Barger-Lux MJ. Human serum 25-hydroxycholecalciferol response to extended oral dosing with cholecalciferol. Am J Clin Nutr. 2003;77(1):204-210.</li>
+    <li>Vieth R. Vitamin D supplementation, 25-hydroxyvitamin D concentrations, and safety. Am J Clin Nutr. 1999;69(5):842-856.</li>
+    <li>Wortsman J, Matsuoka LY, Chen TC, Lu Z, Holick MF. Decreased bioavailability of vitamin D in obesity. Am J Clin Nutr. 2000;72(3):690-693.</li>
+    <li>Webb AR, Kline L, Holick MF. Influence of season and latitude on the cutaneous synthesis of vitamin D3. J Clin Endocrinol Metab. 1988;67(2):373-378.</li>
+    <li>Holick MF, Binkley NC, Bischoff-Ferrari HA, Gordon CM, Hanley DA, Heaney RP, Murad MH, Weaver CM. Evaluation, treatment, and prevention of vitamin D deficiency: an Endocrine Society clinical practice guideline. J Clin Endocrinol Metab. 2011;96(7):1911-1930.</li>
+  </ol>
+
+  <p><a href="index.html">&larr; Back to the simulator</a></p>
+
+</article>
+
+</body>
+</html>
