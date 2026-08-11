@@ -145,41 +145,63 @@
     return PARAMS.RMAX_NMOL_H * persona.skinFrac * sf * synthFactor * ageScale;
   }
 
-  // Exact algebraic steady-state initialization based on target 25(OH)D
-  function initSteadyState(persona, state) {
-    var c25_nmol_L = persona.start25 * PARAMS.NMOL_PER_UG; // start25 is in ng/mL
+  // Pre-run the model for 2 years to reach physiological steady state for the persona's baseline diet/sun
+  function burnIn(persona, state) {
+    var dt = 1.0;
+    var days = 365 * 2;
+    var steps = days * 24;
+    var diet_nmol_h = (persona.dietIU / PARAMS.IU_PER_UG) * PARAMS.NMOL_PER_UG / 24;
 
     var fatRatio = (persona.weightKg * persona.fatFrac) / (PARAMS.WEIGHT_REF * PARAMS.FAT_FRAC_REF);
     var V_p_d3 = PARAMS.V_P_D3_REF * fatRatio;
 
-    // 1. Central 25(OH)D
-    state.C25_c = c25_nmol_L * PARAMS.V_C_25;
-    
-    // 2. Peripheral 25(OH)D (equilibrated)
-    state.C25_p = c25_nmol_L * PARAMS.V_P_25;
+    for (var i = 0; i < steps; i++) {
+      var t = i * dt;
+      var dayIndex = Math.floor(t / 24);
+      var doy = (dayIndex % 365) + 1;
+      var hourSolar = t - dayIndex * 24;
 
-    // 3. CYP24A1 Enzyme (steady state)
-    var ec50_pow = Math.pow(PARAMS.EC_50, PARAMS.GAMMA);
-    var c25_pow = Math.pow(c25_nmol_L, PARAMS.GAMMA);
-    state.E = PARAMS.H_MIN + (PARAMS.H_MAX - PARAMS.H_MIN) * c25_pow / (ec50_pow + c25_pow);
+      // Diet
+      state.G += diet_nmol_h * dt;
 
-    // 4. Elimination rate at steady state (nmol/h)
-    var elim = (PARAMS.CL_CYP24_MAX * state.E + PARAMS.CL_OTHER) * c25_nmol_L;
+      var abs = PARAMS.KA * state.G;
+      var into_d3 = abs * PARAMS.BIOAVAIL;
+      state.G -= abs * dt;
 
-    // 5. Central D3 (nmol/L) required to sustain this elimination
-    var c_d3_c = 0;
-    if (elim < PARAMS.VMAX_25) {
-      c_d3_c = (elim * PARAMS.KM_25) / (PARAMS.VMAX_25 - elim);
+      // Sun
+      var synth = getSynthesisRateNmol(persona, doy, hourSolar);
+      var photo_deg = PARAMS.K_PHOTO * state.S_pre * (synth > 0 ? 1 : 0);
+      var skin_to_d3 = PARAMS.K_ISO * state.S_pre;
+      state.S_pre += (synth - skin_to_d3 - photo_deg) * dt;
+
+      // D3 Distribution
+      var c_d3_c = state.D3_c / PARAMS.V_C_D3;
+      var c_d3_p = state.D3_p / V_p_d3;
+      var d3_exchange = PARAMS.Q_D3 * (c_d3_c - c_d3_p);
+      
+      // 25-hydroxylation and D3 clearance
+      var v_25 = PARAMS.VMAX_25 * c_d3_c / (PARAMS.KM_25 + c_d3_c);
+      var cl_d3_elim = PARAMS.CL_D3 * c_d3_c;
+
+      state.D3_c += (into_d3 + skin_to_d3 - d3_exchange - v_25 - cl_d3_elim) * dt;
+      state.D3_p += d3_exchange * dt;
+
+      // 25OHD Distribution
+      var c_25_c = state.C25_c / PARAMS.V_C_25;
+      var c_25_p = state.C25_p / PARAMS.V_P_25;
+      var c25_exchange = PARAMS.Q_25 * (c_25_c - c_25_p);
+
+      // CYP24A1 Induction
+      var S_C = PARAMS.H_MIN + (PARAMS.H_MAX - PARAMS.H_MIN) * Math.pow(c_25_c, PARAMS.GAMMA) / (Math.pow(PARAMS.EC_50, PARAMS.GAMMA) + Math.pow(c_25_c, PARAMS.GAMMA));
+      var dE = PARAMS.K_OUT * (S_C - state.E);
+      state.E += dE * dt;
+
+      // Elimination
+      var elim = (PARAMS.CL_CYP24_MAX * state.E + PARAMS.CL_OTHER) * c_25_c;
+
+      state.C25_c += (v_25 - c25_exchange - elim) * dt;
+      state.C25_p += c25_exchange * dt;
     }
-    
-    state.D3_c = c_d3_c * PARAMS.V_C_D3;
-
-    // 6. Adipose D3 (equilibrated)
-    state.D3_p = c_d3_c * V_p_d3;
-
-    // Gut and Skin precursor remain 0
-    state.G = 0;
-    state.S_pre = 0;
   }
 
   function simulate(persona, opts) {
@@ -202,8 +224,8 @@
       E: 1.0
     };
 
-    // Initialize to physiological steady state based on target start25
-    initSteadyState(persona, state);
+    // Initialize to physiological steady state based on lifestyle
+    burnIn(persona, state);
 
     var diet_nmol_h = (persona.dietIU / PARAMS.IU_PER_UG) * PARAMS.NMOL_PER_UG / 24;
     var fatRatio = (persona.weightKg * persona.fatFrac) / (PARAMS.WEIGHT_REF * PARAMS.FAT_FRAC_REF);
