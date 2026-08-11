@@ -32,43 +32,29 @@
   <div class="mermaid">
 flowchart LR
   subgraph Inputs["Persona inputs"]
-    SUN["Sun exposure: lat, hours,<br/>skin, Fitzpatrick, envOpts"]
+    SUN["Sun exposure: lat, hours, skin, envOpts"]
     SUPP["Supplement: type, dose, time"]
-    BODY["Body factors: weight, fat %,<br/>start 25(OH)D, age, GC"]
+    DIET["Dietary Baseline (IU/day)"]
+    BODY["Body factors: weight, fat %, age"]
   end
 
   subgraph Solar["Environmental Module (js/solar.js)"]
-    DEC["Declination & Elevation"]
-    UVB["UVB factor (clouds, SPF, altitude)"]
-    DEC --> UVB
+    UVI["Clear-Sky UV Index"]
+    SYNTH["Potential Synthesis Rate"]
+    UVI --> SYNTH
   end
 
-  subgraph PK["PBPK Engine (js/model.js)"]
-    GUT["Gut D3<br/>ka = 0.25/h, F = 0.8"]
-    PREV["Previtamin D3<br/>thermal & photodegradation"]
-    BLD["Blood D3<br/>t1/2 ~ hours"]
-    ADI["Adipose D3<br/>perfusion-limited exchange"]
-    C25["Serum 25(OH)D<br/>Michaelis-Menten Vmax/Km"]
-    CYP["CYP24A1 enzyme<br/>induced by Calcitriol"]
-    CAL["Calcitriol 1,25(OH)2D<br/>dynamic, PTH proxy driven"]
+  subgraph PK["Mass-Balanced PBPK Engine (js/model.js)"]
+    GUT["Gut D3"]
+    PREV["Skin Previtamin D3"]
+    BLD["Central D3"]
+    ADI["Adipose D3"]
+    C25C["Central 25(OH)D"]
+    C25P["Peripheral 25(OH)D"]
+    CYP["CYP24A1 Enzyme (Induction)"]
     
-    PREV -->|isomerization| BLD
+    PREV -->|thermal isomerization| BLD
     GUT -->|absorption| BLD
-    BLD <-->|Q_fat * partition_coeff| ADI
-    BLD -->|Vmax*D3/(Km+D3)| C25
-    C25 -->|hydroxylation| CAL
-    CAL -.->|induces| CYP
-    CYP -.->|degrades| C25
-    CYP -.->|degrades| CAL
-  end
-
-  SUN --> Solar
-  Solar -->|synthesis| PREV
-  SUPP -->|dose impulse| GUT
-  BODY --> PK
-
-  subgraph Outputs["Outputs (js/app.js)"]
-    C24["24h / Week charts:<br/>25(OH)D, serum D3, doses"]
     CY["Year chart: 25(OH)D with<br/>status bands"]
   end
 

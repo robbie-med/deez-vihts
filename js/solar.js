@@ -1,21 +1,13 @@
 /*
- * solar.js - Solar geometry and vitamin-D-weighted UVB model.
+ * solar.js - Empirical Clear-Sky UV Index model.
  *
- * Pure logic, no DOM. Dual export: attaches to `window.Solar` in the browser
- * and to `module.exports` under Node (for tests and scenario scripts).
- *
- * All angles in degrees, all times in hours of local apparent solar time
- * (12.0 = solar noon). Day-of-year (doy) is 1..365 for a generic non-leap year.
+ * Replaces the naive power-law with an empirical UVI approximation 
+ * accounting for zenith angle, altitude, and cloud cover.
  */
 (function (global) {
   'use strict';
 
   var DEG = Math.PI / 180;
-
-  // Day-of-year of the June solstice used for UVB normalization.
-  var JUNE_SOLSTICE_DOY = 172;
-  // Reference latitude for UVB normalization (35 deg N).
-  var NORM_LAT = 35;
 
   // Solar declination (deg) for a given day of year.
   function declinationDeg(doy) {
@@ -36,48 +28,46 @@
     return Math.asin(Math.max(-1, Math.min(1, s))) / DEG;
   }
 
-  // Normalization constant: value of sin(elevation)^2.5 at the reference condition.
-  var NORM = Math.pow(Math.max(sinElevation(NORM_LAT, JUNE_SOLSTICE_DOY, 12), 0), 2.5);
-
   /*
-   * Vitamin-D-weighted UVB factor.
+   * Calculate empirical Clear-Sky UV Index (UVI).
+   * 
    * opts can include:
-   *   - altitudeKm: +10% UVB per km
-   *   - cloudCover: 0 (clear) to 1 (overcast); overcast transmits ~30% UVB
-   *   - spf: Sun Protection Factor (e.g., 1 for none, 15, 30); transmission = 1/SPF
+   *   - altitudeKm: +10% UVI per km altitude
+   *   - cloudCover: 0 (clear) to 1 (overcast); overcast transmits ~30% UV
+   *   - ozoneDU: Dobson Units (default 300)
    */
-  function uvbFactor(latDeg, doy, hourSolar, opts) {
+  function uvIndex(latDeg, doy, hourSolar, opts) {
     var s = Math.max(sinElevation(latDeg, doy, hourSolar), 0);
-    if (s === 0) return 0;
+    if (s <= 0) return 0;
     
-    var baseUvb = Math.pow(s, 2.5) / NORM;
+    // Empirical approximation for UVI at sea level, 300 DU ozone
+    var baseUVI = 12.5 * Math.pow(s, 2.42);
     
     if (opts) {
       if (opts.altitudeKm) {
-        baseUvb *= (1 + 0.10 * opts.altitudeKm);
+        baseUVI *= (1 + 0.10 * opts.altitudeKm);
+      }
+      if (opts.ozoneDU) {
+        // ~1.2% increase in UVI for every 1% decrease in ozone
+        baseUVI *= Math.pow(300 / opts.ozoneDU, 1.2);
       }
       if (opts.cloudCover != null) {
         // Linear interpolation: 0 clouds = 1.0 transmission, 1.0 clouds = 0.3 transmission
         var transmission = 1.0 - (0.7 * Math.max(0, Math.min(1, opts.cloudCover)));
-        baseUvb *= transmission;
+        baseUVI *= transmission;
       }
-      if (opts.spf && opts.spf > 1) {
-        // Note: Real-world application often yields less protection than stated SPF.
-        // We assume perfect application here for the physical model.
-        baseUvb *= (1.0 / opts.spf);
-      }
+      // Note: SPF reduces effective UV at the skin, but UVI itself is an environmental metric.
+      // We apply SPF in the model's synthesis calculation, not here.
     }
-    return baseUvb;
+    
+    return baseUVI;
   }
 
   var Solar = {
     declinationDeg: declinationDeg,
     sinElevation: sinElevation,
     elevationDeg: elevationDeg,
-    uvbFactor: uvbFactor,
-    JUNE_SOLSTICE_DOY: JUNE_SOLSTICE_DOY,
-    NORM_LAT: NORM_LAT,
-    NORM: NORM
+    uvIndex: uvIndex
   };
 
   if (typeof module !== 'undefined' && module.exports) {

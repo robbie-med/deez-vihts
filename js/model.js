@@ -1,8 +1,8 @@
 /*
- * model.js - PBPK-lite Vitamin D pharmacokinetic model.
- *
- * Pure logic, no DOM. Dual export: attaches to `window.VitaminDModel` in the
- * browser and to `module.exports` under Node.
+ * model.js - Comprehensive Mass-Balanced PBPK Vitamin D Model
+ * 
+ * Incorporates dual nonlinearity (Ocampo-Pelland 2016 + Sawyer 2022 / Pang Group).
+ * 7 Compartment architecture, fully tracked in nmol.
  */
 (function (global) {
   'use strict';
@@ -12,56 +12,56 @@
     : global.Solar;
 
   var PARAMS = {
-    KA: 0.25,              // gut absorption rate constant, /h
-    BIOAVAIL: 1.0,         // oral bioavailability into blood D3
-    
-    // Adipose partition
-    KP_FAT: 1.0,           // partition coefficient (adipose : blood)
-    Q_FAT_FRAC: 0.05,      // fraction of cardiac output to fat
-    CARDIAC_OUT_L_H: 300,  // 5 L/min * 60 = 300 L/h
-    
-    // 25-hydroxylation (MM)
-    VMAX25: 3.4,           // ng/mL/h of 25OHD max production
-    KM25: 15,              // ng/mL D3 for half-max
-    
-    // CYP24A1 (Elimination & Induction)
-    KE_IN: 0.02,           // /h
-    KE_OUT: 0.02,          // /h
-    KELIM0: 0.00055,       // basal elim rate /h (ln(2)/(21*24))
-    IND_MAX: 5,            // max fold induction
-    
-    // Calcitriol
-    VMAX1A: 5,             // pg/mL/h
-    KM1A: 40,              // ng/mL 25OHD
-    K_ELIM1: 0.07,         // half-life ~ 10h
-    
-    // Previtamin D3 & Skin
-    K_CONV: 0.08,          // to D3 ~ 8h half-life
-    K_PHOTO: 0.1,          // photodegradation by UV
-    RMAX_UG_H: 500,        // peak full-body skin synthesis rate, ug/h (20,000 IU/h)
-    
+    // Conversion factors
     IU_PER_UG: 40,
-    FAT_REF_KG: 15,
-    SKIN_FACTORS: [1.0, 1.0, 0.85, 0.6, 0.4, 0.25],
-    BLOOD_FRAC: 0.075      // blood volume as a fraction of body weight, L/kg
-  };
+    NMOL_PER_UG: 2.5, // 1 ug = 2.5 nmol for D3 and 25OHD
 
-  // Kept for UI compatibility, though actual elimination is dynamic
-  var KELIM = PARAMS.KELIM0;
+    // Gut Absorption
+    KA: 0.1, // /h
+    BIOAVAIL: 1.0,
+
+    // Skin (PreD3 -> D3)
+    K_ISO: 0.03, // /h thermal isomerization (~23h half-life)
+    K_PHOTO: 0.05, // /h photodegradation
+
+    // D3 Distribution (Volumes in L, scaled to 75kg / 20% fat reference)
+    V_C_D3: 15.5,
+    V_P_D3_REF: 2333,
+    Q_D3: 0.185, // Intercompartmental clearance L/h
+
+    // 25OHD Distribution (Volumes in L)
+    V_C_25: 4.35,
+    V_P_25: 6.87,
+    Q_25: 0.0507,
+
+    // Metabolism: D3 -> 25OHD (Saturable CYP2R1)
+    VMAX_25: 100, // nmol/h 
+    KM_25: 50, // nmol/L
+
+    // Metabolism: 25OHD Elimination (CYP24A1 Indirect Response + Baseline)
+    CL_OTHER: 0.0075, // L/h (Non-CYP24A1 clearance, e.g. CYP3A4)
+    CL_CYP24_MAX: 0.0075, // L/h (Maximal CYP24A1 clearance)
+    K_OUT: 0.020, // Enzyme turnover /h (protein t1/2 ~35 h)
+    H_MIN: 0.10, // Minimum relative CYP24A1 activity
+    H_MAX: 1.00, // Maximum relative CYP24A1 activity
+    EC_50: 55, // nmol/L (22 ng/mL) for half-max induction
+    GAMMA: 2.5, // Steepness of induction curve
+    
+    // D3 Baseline clearance (fast, preventing 100% conversion to 25OHD)
+    CL_D3: 10.0, // L/h
+
+    // Reference values for scaling
+    WEIGHT_REF: 75,
+    FAT_FRAC_REF: 0.20,
+    
+    // Skin Synthesis rate max
+    RMAX_NMOL_H: 500 * 2.5, // 500 ug/h = 1250 nmol/h peak synthesis
+    SKIN_FACTORS: [1.0, 1.0, 0.85, 0.6, 0.4, 0.25]
+  };
 
   function skinFactorForType(skinType) {
     var t = Math.max(1, Math.min(6, Math.round(skinType || 3)));
     return PARAMS.SKIN_FACTORS[t - 1];
-  }
-
-  // Effective distribution volume (L) for 25(OH)D.
-  function distributionVolumeL(weightKg, fatFrac) {
-    return 0.25 * weightKg * (1 + 1.5 * fatFrac);
-  }
-
-  // Blood volume (L)
-  function bloodVolumeL(weightKg) {
-    return PARAMS.BLOOD_FRAC * weightKg;
   }
 
   function defaultPersona(overrides) {
@@ -69,12 +69,12 @@
       name: 'Persona',
       weightKg: 75,
       fatFrac: 0.20,
-      lat: 40,                // degrees, negative = southern hemisphere
-      sunHours: 2,            // h/day, window centered on solar noon
-      skinFrac: 0.25,         // fraction of skin surface exposed
-      skinType: 3,            // Fitzpatrick I..VI
-      supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 }, // none|daily|weekly
-      start25: 25,            // initial serum 25(OH)D, ng/mL
+      lat: 40,
+      sunHours: 2,
+      skinFrac: 0.25,
+      skinType: 3,
+      dietIU: 400, // Baseline dietary/fortification intake
+      supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 },
       age: 40,
       envOpts: { cloudCover: 0, altitudeKm: 0, spf: 1 }
     };
@@ -100,26 +100,19 @@
     outdoor: {
       name: 'Outdoor', weightKg: 75, fatFrac: 0.20, lat: 40,
       sunHours: 2, skinFrac: 0.25, skinType: 3,
-      supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 }, start25: 25
+      dietIU: 400, supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 }
     },
     obese: {
-      name: 'Obese, same sun', weightKg: 120, fatFrac: 0.40, lat: 40,
+      name: 'Obese', weightKg: 120, fatFrac: 0.40, lat: 40,
       sunHours: 2, skinFrac: 0.25, skinType: 3,
-      supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 }, start25: 25
+      dietIU: 400, supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 }
     },
     indoor: {
       name: 'Indoor', weightKg: 75, fatFrac: 0.20, lat: 40,
       sunHours: 0, skinFrac: 0.25, skinType: 3,
-      supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 }, start25: 25
+      dietIU: 400, supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 }
     }
   };
-
-  function calcitriolPgMl(c25) {
-    // Dynamic now, but we keep this stub just in case UI relies on it outside simulate
-    var pthIndex = 1 + Math.max(0, (30 - c25) / 30);
-    var v = 45 * pthIndex * c25 / (c25 + 15);
-    return Math.max(10, Math.min(80, v));
-  }
 
   function doseEvents(persona, days) {
     var supp = persona.supplement || { type: 'none' };
@@ -129,163 +122,192 @@
     var t0 = Math.min(Math.max(supp.hourOfDay != null ? supp.hourOfDay : 8, 0), 23.999);
     var horizon = days * 24;
     for (var t = t0; t < horizon; t += step) {
-      events.push({ tHours: t, iu: supp.doseIU, ug: supp.doseIU / PARAMS.IU_PER_UG });
+      events.push({ tHours: t, iu: supp.doseIU, nmol: (supp.doseIU / PARAMS.IU_PER_UG) * PARAMS.NMOL_PER_UG });
     }
     return events;
   }
 
-  // Exposed for tests
-  function dailySkinSynthesisUg(persona, doy) {
+  // Generate clear-sky UV index synthesis potential
+  function getSynthesisRateNmol(persona, doy, hourSolar) {
     if (persona.sunHours <= 0 || persona.skinFrac <= 0) return 0;
-    var dt = 5 / 60;
-    var half = persona.sunHours / 2;
+    var sunHalf = persona.sunHours / 2;
+    if (hourSolar < 12 - sunHalf || hourSolar > 12 + sunHalf) return 0;
+
     var sf = skinFactorForType(persona.skinType);
     var ageScale = Math.max(0.25, 1 - 0.75 * ((persona.age || 40) - 20) / 50);
     
-    var total = 0;
-    var Prev = 0;
+    // Use the updated Solar module which provides Clear-Sky UVI
+    var uvi = Solar.uvIndex(persona.lat, doy, hourSolar, persona.envOpts);
     
-    for (var h = 12 - half; h < 12 + half; h += dt) {
-      var uvb = Solar.uvbFactor(persona.lat, doy, h, persona.envOpts);
-      var synth = PARAMS.RMAX_UG_H * persona.skinFrac * sf * uvb * ageScale;
-      
-      var dPrev = synth - PARAMS.K_CONV * Prev - PARAMS.K_PHOTO * Prev * Math.max(0, uvb);
-      Prev += dPrev * dt;
-      total += (PARAMS.K_CONV * Prev) * dt;
-    }
-    // plus the residual Prev converting over the next 24 hours (simplified)
-    total += Prev;
-    return total;
+    // Scale synthesis. Max UVI ~ 12 gives max synthesis
+    var synthFactor = Math.max(0, Math.min(1, uvi / 12));
+    
+    return PARAMS.RMAX_NMOL_H * persona.skinFrac * sf * synthFactor * ageScale;
   }
 
-  /*
-   * Run the simulation (PBPK version).
-   */
+  // Exact algebraic steady-state initialization based on target 25(OH)D
+  function initSteadyState(persona, state) {
+    var c25_nmol_L = persona.start25 * PARAMS.NMOL_PER_UG; // start25 is in ng/mL
+
+    var fatRatio = (persona.weightKg * persona.fatFrac) / (PARAMS.WEIGHT_REF * PARAMS.FAT_FRAC_REF);
+    var V_p_d3 = PARAMS.V_P_D3_REF * fatRatio;
+
+    // 1. Central 25(OH)D
+    state.C25_c = c25_nmol_L * PARAMS.V_C_25;
+    
+    // 2. Peripheral 25(OH)D (equilibrated)
+    state.C25_p = c25_nmol_L * PARAMS.V_P_25;
+
+    // 3. CYP24A1 Enzyme (steady state)
+    var ec50_pow = Math.pow(PARAMS.EC_50, PARAMS.GAMMA);
+    var c25_pow = Math.pow(c25_nmol_L, PARAMS.GAMMA);
+    state.E = PARAMS.H_MIN + (PARAMS.H_MAX - PARAMS.H_MIN) * c25_pow / (ec50_pow + c25_pow);
+
+    // 4. Elimination rate at steady state (nmol/h)
+    var elim = (PARAMS.CL_CYP24_MAX * state.E + PARAMS.CL_OTHER) * c25_nmol_L;
+
+    // 5. Central D3 (nmol/L) required to sustain this elimination
+    var c_d3_c = 0;
+    if (elim < PARAMS.VMAX_25) {
+      c_d3_c = (elim * PARAMS.KM_25) / (PARAMS.VMAX_25 - elim);
+    }
+    
+    state.D3_c = c_d3_c * PARAMS.V_C_D3;
+
+    // 6. Adipose D3 (equilibrated)
+    state.D3_p = c_d3_c * V_p_d3;
+
+    // Gut and Skin precursor remain 0
+    state.G = 0;
+    state.S_pre = 0;
+  }
+
   function simulate(persona, opts) {
     var days = opts.days;
     var startDoy = opts.startDoy != null ? opts.startDoy : 1;
-    var dt = days <= 7 ? 0.1 : 0.25;                 
+    var dt = days <= 7 ? 0.1 : 0.5;                 
     var sampleEvery = days <= 1 ? 5 / 60 : (days <= 7 ? 0.5 : 24); 
     if (days > 365) {
       sampleEvery = Math.max(24, Math.round(days / 180) * 24); 
     }
 
-    var Vblood = bloodVolumeL(persona.weightKg);
-    var Vd = distributionVolumeL(persona.weightKg, persona.fatFrac);
-    var Q_fat = PARAMS.CARDIAC_OUT_L_H * PARAMS.Q_FAT_FRAC * (persona.weightKg * persona.fatFrac / PARAMS.FAT_REF_KG);
-    var sf = skinFactorForType(persona.skinType);
-    var sunHalf = persona.sunHours / 2;
-    var ageScale = Math.max(0.25, 1 - 0.75 * ((persona.age || 40) - 20) / 50);
+    // State (nmol)
+    var state = {
+      G: 0,
+      S_pre: 0,
+      D3_c: 0,
+      D3_p: 0,
+      C25_c: 0,
+      C25_p: 0,
+      E: 1.0
+    };
 
-    // State
-    var G = 0;                 // gut D3, ug
-    var Prev = 0;              // previtamin D3, ug
-    var D3 = 0;                // blood D3 amount, ug
-    var A = 0;                 // adipose D3 store, ug
-    var C25 = persona.start25; // serum 25(OH)D, ng/mL
-    var E = 1.0;               // CYP24A1 relative activity (1 = basal)
-    var C1 = 45;               // Calcitriol pg/mL
+    // Initialize to physiological steady state based on target start25
+    initSteadyState(persona, state);
 
-    // Heuristic: D3 is ~5% of 25OHD conc normally
-    D3 = Vblood * (C25 * 0.05); 
-    A = (D3 / Vblood) * PARAMS.KP_FAT * (persona.weightKg * persona.fatFrac);
+    var diet_nmol_h = (persona.dietIU / PARAMS.IU_PER_UG) * PARAMS.NMOL_PER_UG / 24;
+    var fatRatio = (persona.weightKg * persona.fatFrac) / (PARAMS.WEIGHT_REF * PARAMS.FAT_FRAC_REF);
+    var V_p_d3 = PARAMS.V_P_D3_REF * fatRatio;
 
-    var dailySkinTotal = 0;
     var events = doseEvents(persona, days);
     var nextDose = 0;
 
     var nSteps = Math.round(days * 24 / dt);
     var sampleEverySteps = Math.max(1, Math.round(sampleEvery / dt));
 
-    var tHours = [], c25 = [], d3 = [], cal = [], dailySkinUg = [];
+    var tHours = [], c25 = [], d3 = [], dailySkinUg = [];
     var currentDay = -1;
+    var dailySkinTotal = 0;
+
+    // Optional bounds arrays for uncertainty
+    var c25_low = [];
+    var c25_high = [];
+
+    // Pre-calculate responder modifiers
+    var lowResponderScale = 1.25; // Higher clearance -> lower levels
+    var highResponderScale = 0.8; // Lower clearance -> higher levels
 
     for (var i = 0; i <= nSteps; i++) {
       var t = i * dt;
       var dayIndex = Math.floor(t / 24);
+      
       if (dayIndex !== currentDay) {
-        if (currentDay >= 0) dailySkinUg.push(dailySkinTotal);
+        if (currentDay >= 0) dailySkinUg.push(dailySkinTotal / PARAMS.NMOL_PER_UG); // back to ug
         currentDay = dayIndex;
         dailySkinTotal = 0;
       }
+      
       var doy = ((startDoy - 1 + dayIndex) % 365) + 1;
       var hourSolar = t - dayIndex * 24; 
 
       while (nextDose < events.length && events[nextDose].tHours <= t + 1e-9) {
-        G += events[nextDose].ug;
+        state.G += events[nextDose].nmol;
         nextDose++;
       }
 
       if (i % sampleEverySteps === 0 || i === nSteps) {
         tHours.push(t);
-        c25.push(C25);
-        d3.push(D3 / Vblood);
-        cal.push(C1);
+        var c25_ngml = (state.C25_c / PARAMS.V_C_25) / PARAMS.NMOL_PER_UG;
+        c25.push(c25_ngml);
+        d3.push((state.D3_c / PARAMS.V_C_D3) / PARAMS.NMOL_PER_UG);
+
+        // Approximate uncertainty envelope (steady-state proportional shift)
+        // In a true model, we would simulate 3 full states, but this is an O(1) approximation for UI
+        c25_low.push(c25_ngml / lowResponderScale);
+        c25_high.push(c25_ngml / highResponderScale);
       }
+      
       if (i === nSteps) break;
 
-      var uvb = 0;
-      var synth = 0;
-      if (sunHalf > 0 && hourSolar >= 12 - sunHalf && hourSolar < 12 + sunHalf && persona.skinFrac > 0) {
-        uvb = Solar.uvbFactor(persona.lat, doy, hourSolar, persona.envOpts);
-        synth = PARAMS.RMAX_UG_H * persona.skinFrac * sf * uvb * ageScale;
-      }
+      // Diet
+      state.G += diet_nmol_h * dt;
+      var abs = PARAMS.KA * state.G;
+      var into_d3 = abs * PARAMS.BIOAVAIL;
+      state.G -= abs * dt;
 
-      var dPrev = synth - PARAMS.K_CONV * Prev - PARAMS.K_PHOTO * Prev * Math.max(0, uvb);
-      var skinToD3 = PARAMS.K_CONV * Prev;
-      dailySkinTotal += skinToD3 * dt;
+      // Sun
+      var synth = getSynthesisRateNmol(persona, doy, hourSolar);
+      var photo_deg = PARAMS.K_PHOTO * state.S_pre * (synth > 0 ? 1 : 0);
+      var skin_to_d3 = PARAMS.K_ISO * state.S_pre;
+      dailySkinTotal += skin_to_d3 * dt;
+      state.S_pre += (synth - skin_to_d3 - photo_deg) * dt;
 
-      var absorbed = PARAMS.KA * G;
-      var intoBlood = PARAMS.BIOAVAIL * absorbed;
-      var dG = -absorbed;
+      // D3 Distribution
+      var c_d3_c = state.D3_c / PARAMS.V_C_D3;
+      var c_d3_p = state.D3_p / V_p_d3;
+      var d3_exchange = PARAMS.Q_D3 * (c_d3_c - c_d3_p);
+      
+      var v_25 = PARAMS.VMAX_25 * c_d3_c / (PARAMS.KM_25 + c_d3_c);
+      var cl_d3_elim = PARAMS.CL_D3 * c_d3_c;
 
-      // Adipose exchange
-      var c_blood = D3 / Vblood; // ug/L = ng/mL
-      var c_adipose = A / Math.max(1, persona.weightKg * persona.fatFrac); // ug/kg
-      var dA = Q_fat * (c_blood - c_adipose / PARAMS.KP_FAT);
+      state.D3_c += (into_d3 + skin_to_d3 - d3_exchange - v_25 - cl_d3_elim) * dt;
+      state.D3_p += d3_exchange * dt;
 
-      // 25-hydroxylation (MM)
-      var dC25_prod = PARAMS.VMAX25 * c_blood / (PARAMS.KM25 + c_blood);
-      var dC25_elim = PARAMS.KELIM0 * E * C25;
-      var dC25 = dC25_prod - dC25_elim;
+      // 25OHD Distribution
+      var c_25_c = state.C25_c / PARAMS.V_C_25;
+      var c_25_p = state.C25_p / PARAMS.V_P_25;
+      var c25_exchange = PARAMS.Q_25 * (c_25_c - c_25_p);
 
-      // CYP24A1 induction (by calcitriol)
-      var ind = PARAMS.IND_MAX * C1 / (C1 + 45); 
-      var dE = PARAMS.KE_IN * (1 + ind) - PARAMS.KE_OUT * E;
+      // CYP24A1 Induction
+      var S_C = PARAMS.H_MIN + (PARAMS.H_MAX - PARAMS.H_MIN) * Math.pow(c_25_c, PARAMS.GAMMA) / (Math.pow(PARAMS.EC_50, PARAMS.GAMMA) + Math.pow(c_25_c, PARAMS.GAMMA));
+      var dE = PARAMS.K_OUT * (S_C - state.E);
+      state.E += dE * dt;
 
-      // Calcitriol and PTH
-      var ca_eff = 9.5 + 0.1 * (C1 - 45); 
-      var pth = 65 * Math.pow(9.5 / ca_eff, 4) * (1 / (1 + C1/100)); 
-      var dC1_prod = PARAMS.VMAX1A * C25 / (PARAMS.KM1A + C25) * (pth/65);
-      var dC1_elim = PARAMS.K_ELIM1 * E * C1; 
-      var dC1 = dC1_prod - dC1_elim;
+      // Elimination
+      var elim = (PARAMS.CL_CYP24_MAX * state.E + PARAMS.CL_OTHER) * c_25_c;
 
-      // D3 mass loss (ug/h) = dC25_prod (ng/mL/h) * Vd (L)
-      var dD3 = intoBlood + skinToD3 - dA - (dC25_prod * Vd);
-
-      G += dG * dt;
-      Prev += dPrev * dt;
-      D3 += dD3 * dt;
-      A += dA * dt;
-      C25 += dC25 * dt;
-      E += dE * dt;
-      C1 += dC1 * dt;
-
-      if (G < 0) G = 0;
-      if (Prev < 0) Prev = 0;
-      if (D3 < 0) D3 = 0;
-      if (A < 0) A = 0;
-      if (C25 < 0) C25 = 0;
-      if (E < 1) E = 1; 
-      if (C1 < 0) C1 = 0;
+      state.C25_c += (v_25 - c25_exchange - elim) * dt;
+      state.C25_p += c25_exchange * dt;
     }
-    dailySkinUg.push(dailySkinTotal);
+    
+    dailySkinUg.push(dailySkinTotal / PARAMS.NMOL_PER_UG);
 
     return {
       tHours: tHours,
       c25: c25,
+      c25_low: c25_low,
+      c25_high: c25_high,
       d3: d3,
-      calcitriol: cal,
       doses: events.map(function (e) { return { tHours: e.tHours, iu: e.iu }; }),
       dailySkinUg: dailySkinUg
     };
@@ -293,14 +315,9 @@
 
   var Model = {
     PARAMS: PARAMS,
-    KELIM: KELIM,
     PRESETS: PRESETS,
     defaultPersona: defaultPersona,
     skinFactorForType: skinFactorForType,
-    distributionVolumeL: distributionVolumeL,
-    bloodVolumeL: bloodVolumeL,
-    calcitriolPgMl: calcitriolPgMl,
-    dailySkinSynthesisUg: dailySkinSynthesisUg,
     simulate: simulate
   };
 

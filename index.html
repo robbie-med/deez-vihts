@@ -51,11 +51,6 @@
           Start date
           <input type="date" id="start-date">
         </div>
-        <label class="checkbox-wrap" id="calc-wrap">
-          <input type="checkbox" id="toggle-calcitriol">
-          Calcitriol 1,25(OH)2D (illustrative)
-        </label>
-      </div>
       <div class="chart-container"><canvas id="chart"></canvas></div>
       <div class="axis-note" id="axis-note"></div>
     </div>
@@ -63,17 +58,15 @@
     <details class="assumptions glass">
       <summary>Model &amp; assumptions</summary>
       <div class="body">
-        <h4>High-Fidelity PBPK-Lite Architecture</h4>
+        <h4>Semi-Empirical Educational Simulator</h4>
         <ul>
-          <li><b>Enzyme Kinetics:</b> 25-hydroxylation uses saturable Michaelis-Menten kinetics (Vmax/Km) rather than linear clearance, correctly modeling how levels plateau during summer or high supplementation.</li>
-          <li><b>Dynamic Catabolism:</b> Explicitly models CYP24A1 induction via calcitriol feedback, causing the 25(OH)D half-life to dynamically shorten as levels rise.</li>
-          <li><b>Adipose Tissue:</b> Replaces arbitrary fractional transfer with physiological perfusion-limited exchange based on cardiac output fraction and lipid partition coefficients.</li>
-          <li><b>PTH/Calcitriol Axis:</b> Calcitriol is now a fully dynamic state variable with production stimulated by a quasi-steady-state Parathyroid Hormone (PTH) proxy that responds to a simulated calcium index.</li>
-          <li><b>Skin Photochemistry:</b> Simulates the thermal isomerization of Previtamin D3 to D3 alongside UV-driven photodegradation to lumisterol/tachysterol, preventing infinite synthesis.</li>
-          <li><b>Environmental:</b> Extends solar equations to account for cloud cover attenuation, sunscreen SPF, and altitude.</li>
+          <li><b>Dual Nonlinearity:</b> Employs saturable Michaelis-Menten kinetics for 25-hydroxylation (CYP2R1) combined with an indirect-response model for CYP24A1 induction, preventing infinite physiological accumulation.</li>
+          <li><b>Mass-Balanced Engine:</b> Operates strictly in moles (nmol) with explicit distribution volumes, ensuring exact mass conservation across 7 physiological compartments.</li>
+          <li><b>Mechanistic Adipose Exchange:</b> Uses dynamic tissue partition coefficients and perfusion-limited exchange, properly reflecting the volumetric dilution seen in higher BMI groups.</li>
+          <li><b>Clear-Sky UV Index:</b> Solar synthesis is driven by an empirical UV-Index approximation accounting for latitude, zenith angle, altitude, and cloud cover.</li>
         </ul>
         <div class="disclaimer">
-          Educational model, not medical advice. Parameters are population-average approximations; do not use this tool to plan supplementation.
+          <strong>WARNING:</strong> This is an educational tool and has not been fully externally validated against regulatory datasets. Parameters are population-average approximations. Do not use this tool to plan supplementation.
         </div>
       </div>
     </details>

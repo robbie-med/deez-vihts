@@ -26,7 +26,6 @@
   var state = {
     viewDays: 365,
     startDate: todayStr(),
-    showCalcitriol: false,
     personas: classicThreeWay()
   };
 
@@ -90,7 +89,7 @@
           field('Sun (h/day, centered on noon)', 'sunHours', 'type="number" min="0" max="12" step="0.25" value="' + p.sunHours + '"') +
           field('Skin exposed (fraction)', 'skinFrac', 'type="number" min="0" max="1" step="0.05" value="' + p.skinFrac + '"') +
           '<div class="field"><label>Fitzpatrick skin type</label><select data-prop="skinType">' + skinOpts + '</select></div>' +
-          field('Start 25(OH)D (ng/mL)', 'start25', 'type="number" min="0" max="150" step="1" value="' + p.start25 + '"') +
+          field('Dietary base (IU/d)', 'dietIU', 'type="number" min="0" max="10000" step="100" value="' + (p.dietIU != null ? p.dietIU : 400) + '"') +
         '</div>' +
         '<details class="advanced-params"><summary>Advanced Environmental Parameters</summary>' +
         '<div class="grid" style="margin-top: 0.5rem;">' +
@@ -183,9 +182,6 @@
     var unit = parseFloat(viewUnitEl.value) || 365;
     state.viewDays = num * unit;
     
-    // Auto-hide calcitriol if view is longer than 1 year to keep chart clean
-    document.getElementById('calc-wrap').style.display = state.viewDays >= 365 ? 'none' : '';
-    
     scheduleRun();
   }
 
@@ -196,12 +192,6 @@
   startDateEl.value = state.startDate;
   startDateEl.addEventListener('input', function () {
     state.startDate = startDateEl.value;
-    scheduleRun();
-  });
-
-  var calcEl = document.getElementById('toggle-calcitriol');
-  calcEl.addEventListener('change', function () {
-    state.showCalcitriol = calcEl.checked;
     scheduleRun();
   });
 
@@ -326,6 +316,32 @@
         tension: 0.15
       });
 
+      // Uncertainty envelopes
+      if (r.c25_high && r.c25_high.length) {
+        datasets.push({
+          label: name + ' (Upper)',
+          data: r.c25_high,
+          borderColor: 'transparent',
+          backgroundColor: color + '33', // 20% opacity
+          fill: '+1',
+          pointRadius: 0,
+          borderWidth: 0,
+          yAxisID: 'y',
+          tension: 0.15
+        });
+        datasets.push({
+          label: name + ' (Lower)',
+          data: r.c25_low,
+          borderColor: 'transparent',
+          backgroundColor: 'transparent',
+          fill: false,
+          pointRadius: 0,
+          borderWidth: 0,
+          yAxisID: 'y',
+          tension: 0.15
+        });
+      }
+
       if (vp.days < 30) {
         datasets.push({
           label: name + ' — serum D3 (ng/mL)',
@@ -338,19 +354,6 @@
           yAxisID: 'y1',
           tension: 0.15
         });
-        if (state.showCalcitriol) {
-          datasets.push({
-            label: name + ' — calcitriol (pg/mL, illustrative)',
-            data: r.calcitriol,
-            borderColor: color,
-            backgroundColor: color,
-            borderWidth: 1,
-            borderDash: [2, 3],
-            pointRadius: 0,
-            yAxisID: 'y2',
-            tension: 0.15
-          });
-        }
         if (r.doses.length) {
           datasets.push({
             label: name + ' — dose',
@@ -389,10 +392,6 @@
         x: { ticks: { autoSkip: true, maxTicksLimit: 16, color: textColor }, grid: { display: false } },
         y: { min: 0, position: 'left', title: { display: true, text: '25(OH)D (ng/mL)', color: textColor }, ticks: { color: textColor }, grid: { color: gridColor } },
         y1: { min: 0, position: 'right', title: { display: true, text: 'D3 (ng/mL)', color: textColor }, ticks: { color: textColor }, grid: { drawOnChartArea: false } },
-        y2: {
-          min: 0, max: 90, position: 'right', display: state.showCalcitriol,
-          title: { display: true, text: 'Calcitriol (pg/mL)', color: textColor }, ticks: { color: textColor }, grid: { drawOnChartArea: false }
-        },
         yDose: { display: false, min: 0, max: 1.04 }
       };
     }
@@ -427,7 +426,7 @@
 
     renderChips(results, vp);
     axisNoteEl.textContent = vp.days >= 30
-      ? 'Bands: <20 ng/mL deficient, 20-30 insufficient, 30-50 sufficient; dashed line at 100 ng/mL (upper caution). 1 ng/mL = 2.5 nmol/L. Above ~60-100 ng/mL the linear model leaves its calibrated range.'
+      ? 'Bands: <20 ng/mL deficient, 20-30 insufficient, 30-50 sufficient; dashed line at 100 ng/mL (upper caution). 1 ng/mL = 2.5 nmol/L. Shaded regions represent 50% interindividual variability.'
       : 'Serum 25(OH)D (solid) and cholecalciferol D3 (dashed) in ng/mL (1 ng/mL = 2.5 nmol/L). Triangles mark supplement doses.';
   }
 

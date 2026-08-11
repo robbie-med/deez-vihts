@@ -2,7 +2,7 @@
 
 ## Abstract
 
-Vitamin D status is determined by the interplay of ultraviolet-B (UVB)-driven cutaneous synthesis, oral intake, body composition, and slow whole-body kinetics. We present a deterministic, physiologically based pharmacokinetic (PBPK-lite) model of vitamin D3 (cholecalciferol) and its circulating metabolites, implemented as a dependency-free static web application. The model couples a solar-geometry/UVB submodule — accounting for clouds, sunscreen, altitude, and latitude — to a nonlinear PK system incorporating gut absorption, thermal isomerization of previtamin D3 in the skin, perfusion-limited adipose exchange, Michaelis-Menten 25-hydroxylation, and calcitriol-driven CYP24A1 induction. Calibrated against published dose-response data, the model reproduces the clinically observed rise in serum 25(OH)D following 1000 IU/day supplementation, the twofold attenuation of that response in obesity, and the near-total absence of cutaneous synthesis at high winter latitudes. Unlike previous linear models, this PBPK engine correctly exhibits physiological plateaus under sustained high exposure. All code, tests, and the scenario script that generated every number in this paper are included in the project.
+Vitamin D status is determined by the interplay of ultraviolet-B (UVB)-driven cutaneous synthesis, oral intake, body composition, and slow whole-body kinetics. We present a deterministic, physiologically based pharmacokinetic (PBPK) model of vitamin D3 (cholecalciferol) and its circulating metabolites, implemented as a dependency-free static web application. The model couples an empirical clear-sky UV-Index submodule — accounting for clouds, ozone, altitude, and latitude — to a mass-balanced PK system operating across 7 explicit compartments. It features a dual-nonlinearity architecture: saturable Michaelis-Menten 25-hydroxylation (CYP2R1) combined with an indirect response model of CYP24A1 enzyme induction. This produces physiological concentration plateaus and concentration-dependent clearance. This is an educational, semi-empirical tool and has not been fully externally validated against regulatory datasets. All code and scripts are included in the project.
 
 ## 1. Introduction
 
@@ -18,21 +18,19 @@ The goals were pedagogical: reproduce the qualitative and semi-quantitative beha
 
 ### 2.1 Model overview
 
-The model tracks several state variables: gut cholecalciferol, skin previtamin D3, blood cholecalciferol (D3), adipose D3, serum 25(OH)D concentration, dynamic calcitriol concentration, and relative CYP24A1 enzyme activity.
+The model tracks several state variables entirely in molar mass (nmol) to enforce mass balance: gut D3, skin previtamin D3, central D3, adipose D3, central 25(OH)D, peripheral 25(OH)D, and relative CYP24A1 enzyme activity.
 
 ### 2.2 Compartments and differential equations
 
-**Gut (oral D3).** Oral doses enter the gut as impulses and are absorbed with first-order kinetics (ka = 0.25 /h) and 100% bioavailability into the blood D3 compartment.
+**Gut & Skin.** Oral doses and dietary baseline inputs enter the gut and are absorbed with first-order kinetics. Synthesized previtamin D3 isomerizes to D3 (rate K_ISO) and undergoes photodegradation.
 
-**Skin Photochemistry.** Synthesized previtamin D3 isomerizes to D3 (rate K_CONV) and also undergoes UVB-driven photodegradation (rate K_PHOTO), imposing a soft saturation limit on daily endogenous production.
+**Blood & Adipose D3.** Cholecalciferol exchanges between blood and adipose tissue via a perfusion-limited flow model. The partition coefficient favors adipose retention, delaying the release of stored D3 into the bloodstream, successfully replicating the volumetric dilution seen in higher BMI groups.
 
-**Blood & Adipose D3.** Cholecalciferol exchanges between blood and adipose tissue via a perfusion-limited flow model driven by cardiac output (5 L/min) apportioned to adipose tissue (5%). The partition coefficient favors adipose retention, delaying the release of stored D3 into the bloodstream, successfully replicating the blunted and delayed kinetics observed in obesity [4].
+**Serum 25(OH)D.** 25(OH)D is produced from D3 via saturable Michaelis-Menten kinetics (Vmax = 100 nmol/h, Km = 50 nmol/L). The model implements a dual-nonlinearity architecture by introducing an indirect-response model for CYP24A1 induction. CYP24A1 activity follows a sigmoidal induction curve (EC50 = 55 nmol/L) derived from the Shahidzadeh Yazdi et al. data. This non-linear autoregulatory loop ensures 25(OH)D levels plateau physiologically rather than accumulating indefinitely during the summer.
 
-**Serum 25(OH)D & Calcitriol.** 25(OH)D is produced from D3 via saturable Michaelis-Menten kinetics (Vmax = 3.4 ng/mL/h, Km = 15 ng/mL). Calcitriol production is simulated dynamically in response to a PTH proxy curve (driven by 25(OH)D levels). High calcitriol levels induce the CYP24A1 enzyme, which increases the catabolism of both 25(OH)D and calcitriol. This nonlinear autoregulatory loop ensures 25(OH)D levels plateau physiologically rather than accumulating indefinitely during the summer.
+### 2.3 Solar and UV Index submodule
 
-### 2.3 Solar and UVB submodule
-
-Solar elevation is calculated via standard hour-angle formulas. The vitamin-D-weighted UVB factor is exponentially attenuated by zenith angle to reflect the thicker atmosphere at low sun (the "vitamin D winter" [5]). Attenuation factors for cloud cover, altitude, and sunscreen SPF are multiplicatively applied to the raw irradiance.
+Solar synthesis is driven by an empirical clear-sky UV-Index approximation accounting for latitude, zenith angle, altitude, and cloud cover. This acts as a potential synthesis rate, providing an educational and robust approximation of exogenous UV inputs.
 
 ### 2.4 Calibration & Integration
 
@@ -104,7 +102,7 @@ The PBPK model successfully reproduces the core benchmark behaviors: clinical or
 
 ## 6. Conclusion
 
-A non-linear PBPK model with a solar-geometry front end, analytically tuned to physiological boundaries, realistically replicates the dynamics of vitamin D absorption, synthesis, adipose sequestration, and degradation. Packaged as a dependency-free interactive web application, it serves as an educational instrument for exploring the complex multi-compartmental kinetics of vitamin D. It is an educational model and not medical advice.
+A mass-balanced, 7-compartment PBPK model featuring dual non-linearity correctly replicates the first-order homeostatic defenses of vitamin D metabolism (CYP24A1 suppression in deficiency, induction in excess). Packaged as a dependency-free interactive web application, it serves as an educational instrument for exploring complex multi-compartmental kinetics. It is a semi-empirical educational model, not a clinically validated predictor, and should not be used for medical advice.
 
 ## References
 
