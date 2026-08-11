@@ -75,10 +75,29 @@
       card.style.borderLeftColor = color;
       card.dataset.index = i;
 
-      var supp = p.supplement;
-      var typeOpts = ['none', 'daily', 'weekly'].map(function (t) {
-        return '<option value="' + t + '"' + (supp.type === t ? ' selected' : '') + '>' + t + '</option>';
-      }).join('');
+      var supps = p.supplements || [];
+      if (supps.length === 0 && p.supplement) {
+        supps = [p.supplement];
+        p.supplements = supps;
+      }
+      
+      var suppHtml = '';
+      supps.forEach(function(supp, idx) {
+        var typeOpts = ['none', 'daily', 'weekly'].map(function (t) {
+          return '<option value="' + t + '"' + (supp.type === t ? ' selected' : '') + '>' + t + '</option>';
+        }).join('');
+        
+        suppHtml += '<div class="supp-row" style="margin-top: 8px;">' +
+          '<div class="field"><label>Supplement ' + (idx + 1) + '</label><select data-prop="supp.' + idx + '.type">' + typeOpts + '</select></div>' +
+          field('Dose (IU)', 'supp.' + idx + '.doseIU', 'type="number" min="0" max="100000" step="100" value="' + supp.doseIU + '"' + (supp.type === 'none' ? ' disabled' : '')) +
+          field('Duration (wks)', 'supp.' + idx + '.durationWeeks', 'type="number" min="1" max="1040" step="1" value="' + (supp.durationWeeks || 52) + '"' + (supp.type === 'none' ? ' disabled' : '')) +
+          (idx > 0 ? '<button class="small danger remove-supp" data-idx="' + idx + '" style="align-self: flex-end; margin-bottom: 4px; flex: none;">X</button>' : '') +
+        '</div>';
+      });
+      
+      if (supps.length < 3) {
+        suppHtml += '<div class="supp-row" style="justify-content: flex-end; margin-top: 4px;"><button class="small add-supp">+ Add Phase</button></div>';
+      }
       var skinOpts = ROMAN.map(function (r, k) {
         var style = 'background-color:' + r.bg + '; color:' + (k > 2 ? '#fff' : '#000');
         return '<option value="' + (k + 1) + '" style="' + style + '"' + (p.skinType === k + 1 ? ' selected' : '') + '>' + r.text + '</option>';
@@ -105,11 +124,7 @@
           field('Altitude (km)', 'envOpts.altitudeKm', 'type="number" min="0" max="8.8" step="0.1" value="' + (p.envOpts?.altitudeKm || 0) + '"') +
           field('Sunscreen SPF', 'envOpts.spf', 'type="number" min="1" max="100" step="1" value="' + (p.envOpts?.spf || 1) + '"') +
         '</div></details>' +
-        '<div class="supp-row">' +
-          '<div class="field"><label>Supplement</label><select data-prop="supp.type">' + typeOpts + '</select></div>' +
-          field('Dose (IU)', 'supp.doseIU', 'type="number" min="0" max="100000" step="100" value="' + supp.doseIU + '"' + (supp.type === 'none' ? ' disabled' : '')) +
-          field('Time of day (h)', 'supp.hourOfDay', 'type="number" min="0" max="23" step="1" value="' + supp.hourOfDay + '"' + (supp.type === 'none' ? ' disabled' : '')) +
-        '</div>' +
+        suppHtml +
         '<div class="preset-row">' +
           '<button class="small" data-preset="outdoor">Outdoor (2h midday sun)</button>' +
           '<button class="small" data-preset="obese">Obese, same sun</button>' +
@@ -137,12 +152,19 @@
 
     if (prop === 'name') { p.name = ev.target.value; }
     else if (prop === 'fatPct') { p.fatFrac = clampNum(ev.target.value, 3, 70, 20) / 100; }
-    else if (prop === 'supp.type') {
-      p.supplement.type = ev.target.value;
-      renderCards(); // enable/disable dose inputs
+    else if (prop.indexOf('supp.') === 0) {
+      var parts = prop.split('.');
+      var idx = parseInt(parts[1], 10);
+      var subProp = parts[2];
+      if (subProp === 'type') {
+        p.supplements[idx].type = ev.target.value;
+        renderCards(); // enable/disable inputs
+      } else if (subProp === 'doseIU') {
+        p.supplements[idx].doseIU = clampNum(ev.target.value, 0, 100000, 0);
+      } else if (subProp === 'durationWeeks') {
+        p.supplements[idx].durationWeeks = clampNum(ev.target.value, 1, 1040, 52);
+      }
     }
-    else if (prop === 'supp.doseIU') { p.supplement.doseIU = clampNum(ev.target.value, 0, 100000, 0); }
-    else if (prop === 'supp.hourOfDay') { p.supplement.hourOfDay = clampNum(ev.target.value, 0, 23, 8); }
     else if (prop === 'skinType') { p.skinType = parseInt(ev.target.value, 10) || 3; }
     else if (prop === 'envOpts.cloudCover') { p.envOpts.cloudCover = clampNum(ev.target.value, 0, 1, 0); }
     else if (prop === 'envOpts.altitudeKm') { p.envOpts.altitudeKm = clampNum(ev.target.value, 0, 8.8, 0); }
@@ -156,6 +178,22 @@
     if (!btn) return;
     var card = btn.closest('.persona-card');
     var i = card ? Number(card.dataset.index) : -1;
+    var p = i >= 0 ? state.personas[i] : null;
+
+    if (btn.classList.contains('add-supp') && p) {
+      p.supplements.push({ type: 'none', doseIU: 1000, hourOfDay: 8, durationWeeks: 52 });
+      renderCards();
+      scheduleRun();
+      return;
+    }
+    if (btn.classList.contains('remove-supp') && p) {
+      var idx = parseInt(btn.dataset.idx, 10);
+      p.supplements.splice(idx, 1);
+      renderCards();
+      scheduleRun();
+      return;
+    }
+
     if (btn.dataset.preset) {
       var preset = clone(Model.PRESETS[btn.dataset.preset]);
       var old = state.personas[i];

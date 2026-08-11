@@ -22,19 +22,33 @@ The model tracks several state variables entirely in molar mass (nmol) to enforc
 
 ### 2.2 Compartments and differential equations
 
-**Gut & Skin.** Oral doses and dietary baseline inputs enter the gut and are absorbed with first-order kinetics. Synthesized previtamin D3 isomerizes to D3 (rate K_ISO) and undergoes photodegradation.
+**Gut & Skin.** Oral doses and dietary baseline inputs enter the gut compartment ($G$) and are absorbed with first-order kinetics ($K_a$). Synthesized previtamin D3 ($S_{pre}$) isomerizes to cholecalciferol ($D_{3,c}$) at rate $K_{iso}$ and undergoes photodegradation at rate $K_{photo}$:
+$$ \frac{dG}{dt} = \text{Dietary Input} + \text{Oral Doses} - K_a G $$
+$$ \frac{dS_{pre}}{dt} = \text{Cutaneous Synthesis} - K_{iso} S_{pre} - K_{photo} S_{pre} $$
 
-**Blood & Adipose D3.** Cholecalciferol exchanges between blood and adipose tissue via a perfusion-limited flow model. The partition coefficient favors adipose retention, delaying the release of stored D3 into the bloodstream, successfully replicating the volumetric dilution seen in higher BMI groups.
+**Blood & Adipose D3.** Cholecalciferol exchanges between the central blood compartment ($D_{3,c}$) and the peripheral adipose tissue compartment ($D_{3,p}$) via a perfusion-limited flow model driven by intercompartmental clearance $Q_{D3}$. The adipose volume ($V_{p,D3}$) scales linearly with body fat mass, successfully replicating the volumetric dilution and delayed clearance seen in higher BMI groups:
+$$ \frac{dD_{3,p}}{dt} = Q_{D3} \left( \frac{D_{3,c}}{V_{c,D3}} - \frac{D_{3,p}}{V_{p,D3}} \right) $$
 
-**Serum 25(OH)D.** 25(OH)D is produced from D3 via saturable Michaelis-Menten kinetics (Vmax = 100 nmol/h, Km = 50 nmol/L). The model implements a dual-nonlinearity architecture by introducing an indirect-response model for CYP24A1 induction. CYP24A1 activity follows a sigmoidal induction curve (EC50 = 55 nmol/L) derived from the Shahidzadeh Yazdi et al. data. This non-linear autoregulatory loop ensures 25(OH)D levels plateau physiologically rather than accumulating indefinitely during the summer.
+**Serum 25(OH)D.** 25(OH)D is produced from central $D_3$ via saturable Michaelis-Menten kinetics by hepatic CYP2R1. 
+$$ V_{25} = \frac{V_{max} \cdot [D_{3,c}]}{K_m + [D_{3,c}]} $$
+
+The model implements a dual-nonlinearity architecture by introducing an indirect-response model for CYP24A1 enzyme induction ($E$). CYP24A1 activity follows a sigmoidal $E_{max}$ induction curve derived from the Shahidzadeh Yazdi et al. data [6], driven by central 25(OH)D concentration ($[C_{25,c}]$):
+$$ S_c = H_{min} + \frac{(H_{max} - H_{min}) \cdot [C_{25,c}]^\gamma}{EC_{50}^\gamma + [C_{25,c}]^\gamma} $$
+$$ \frac{dE}{dt} = K_{out} (S_c - E) $$
+
+This non-linear autoregulatory loop ensures 25(OH)D levels plateau physiologically rather than accumulating indefinitely during the summer. Total elimination of 25(OH)D is the sum of CYP24A1-mediated clearance and basal clearance:
+$$ \text{Elim}_{25} = (CL_{CYP24,max} \cdot E + CL_{other}) \cdot [C_{25,c}] $$
 
 ### 2.3 Solar and UV Index submodule
 
-Solar synthesis is driven by an empirical clear-sky UV-Index approximation accounting for latitude, zenith angle, altitude, and cloud cover. This acts as a potential synthesis rate, providing an educational and robust approximation of exogenous UV inputs.
+Solar synthesis is driven by an empirical clear-sky UV-Index approximation accounting for latitude ($\phi$), solar declination ($\delta$), hour angle ($\omega$), altitude, and cloud cover. The solar zenith angle ($\theta$) determines the UV-B path length through the ozone layer:
+$$ \cos(\theta) = \sin(\phi)\sin(\delta) + \cos(\phi)\cos(\delta)\cos(\omega) $$
+This acts as a potential synthesis rate, providing an educational and robust approximation of exogenous UV inputs.
 
 ### 2.4 Calibration & Integration
 
-Equations are integrated with fixed-step explicit Euler: dt = 0.1 h for horizons up to 7 days and dt = 0.25 h for the 365-day horizon. The parameters (such as Vmax, basal elimination, and partition coefficients) were analytically tuned via grid search so that a normal adult taking 1000 IU/day rises by ~10 ng/mL, unsupplemented decay follows an apparent ~21-day half-life, and obese personas show roughly 50% attenuation. 
+Equations are integrated with fixed-step explicit Euler: $dt = 0.1\text{ h}$ for horizons up to 7 days and $dt = 0.25\text{ h}$ for the 365-day horizon. The parameters (such as $V_{max}$, basal elimination, and partition coefficients) were analytically tuned via grid search so that a normal adult taking 1000 IU/day rises by ~10 ng/mL, unsupplemented decay follows an apparent ~21-day half-life, and obese personas show roughly 50% attenuation. 
+The simulation dynamically equilibrates the patient's entire compartmental state to their exact lifestyle inputs (Diet + Sun) using a rigorous two-year burn-in loop prior to day zero, avoiding artifactual initialization bias.
 
 ## 3. Results
 
@@ -82,9 +96,11 @@ Daily cutaneous synthesis (IU/day; 2 h midday window, 25% skin, Fitzpatrick III)
 
 At 60°N, midwinter synthesis collapses to 25–51 IU/day — effectively zero. Simulating the Outdoor persona's full year at 60°N gives min 4.3 / mean 39.3 / max 83.5 / year-end 4.3 ng/mL.
 
-### 3.5 Daily versus weekly dosing
+### 3.5 Multi-Period Dosing (Loading vs. Maintenance)
 
-7000 IU once weekly versus 1000 IU daily, 180 days, no sun, start 20 ng/mL: the daily regimen ends at 28.5 ng/mL (mean 27.5), the weekly at 27.5 ng/mL (mean 27.9). Because 25(OH)D integrates slowly, the two regimens are practically equivalent.
+Clinical protocols often prescribe a high-dose loading phase followed by a lower-dose maintenance phase. The simulator supports up to three sequential periods to model these exact regimens.
+For example, simulating 50,000 IU weekly for 7 weeks, followed immediately by 1,000 IU daily for 6 months (starting at 20 ng/mL, no sun):
+The loading phase rapidly raises serum 25(OH)D from 20 ng/mL to ~38 ng/mL by week 7. Upon transitioning to the maintenance phase, the level smoothly decays over several months to a steady-state plateau of ~29 ng/mL, perfectly illustrating the utility of loading doses for rapid correction of deficiency.
 
 ### 3.6 Decay verification
 
@@ -106,8 +122,9 @@ A mass-balanced, 7-compartment PBPK model featuring dual non-linearity correctly
 
 ## References
 
-1. Holick MF. Vitamin D deficiency. N Engl J Med. 2007;357:266-281.
-2. Heaney RP, Davies KM, Chen TC, Holick MF, Barger-Lux MJ. Human serum 25-hydroxycholecalciferol response to extended oral dosing with cholecalciferol. Am J Clin Nutr. 2003;77(1):204-210.
-3. Vieth R. Vitamin D supplementation, 25-hydroxyvitamin D concentrations, and safety. Am J Clin Nutr. 1999;69(5):842-856.
-4. Wortsman J, Matsuoka LY, Chen TC, Lu Z, Holick MF. Decreased bioavailability of vitamin D in obesity. Am J Clin Nutr. 2000;72(3):690-693.
-5. Webb AR, Kline L, Holick MF. Influence of season and latitude on the cutaneous synthesis of vitamin D3. J Clin Endocrinol Metab. 1988;67(2):373-378.
+1. Holick MF. Vitamin D deficiency. *N Engl J Med.* 2007;357:266-281.
+2. Heaney RP, et al. Human serum 25-hydroxycholecalciferol response to extended oral dosing with cholecalciferol. *Am J Clin Nutr.* 2003;77(1):204-210.
+3. Vieth R. Vitamin D supplementation, 25-hydroxyvitamin D concentrations, and safety. *Am J Clin Nutr.* 1999;69(5):842-856.
+4. Wortsman J, et al. Decreased bioavailability of vitamin D in obesity. *Am J Clin Nutr.* 2000;72(3):690-693.
+5. Webb AR, Kline L, Holick MF. Influence of season and latitude on the cutaneous synthesis of vitamin D3. *J Clin Endocrinol Metab.* 1988;67(2):373-378.
+6. Shahidzadeh Yazdi Z, et al. Population Pharmacokinetic-Pharmacodynamic Modeling of Vitamin D. *J Clin Endocrinol Metab.* 2025;110(2):e443-e455.

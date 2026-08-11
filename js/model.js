@@ -74,16 +74,19 @@
       skinFrac: 0.25,
       skinType: 3,
       dietIU: 400, // Baseline dietary/fortification intake
-      supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 },
+      supplements: [{ type: 'none', doseIU: 1000, hourOfDay: 8, durationWeeks: 52 }],
       age: 40,
       envOpts: { cloudCover: 0, altitudeKm: 0, spf: 1 }
     };
     if (overrides) {
       for (var k in overrides) {
-        if (k === 'supplement') {
-          var s = p.supplement;
-          for (var sk in overrides.supplement) s[sk] = overrides.supplement[sk];
-          p.supplement = s;
+        if (k === 'supplements') {
+          p.supplements = [];
+          for (var i = 0; i < overrides.supplements.length; i++) {
+            var s = { type: 'none', doseIU: 1000, hourOfDay: 8, durationWeeks: 52 };
+            for (var sk in overrides.supplements[i]) s[sk] = overrides.supplements[i][sk];
+            p.supplements.push(s);
+          }
         } else if (k === 'envOpts') {
           var e = p.envOpts;
           for (var ek in overrides.envOpts) e[ek] = overrides.envOpts[ek];
@@ -100,29 +103,53 @@
     outdoor: {
       name: 'Outdoor', weightKg: 75, fatFrac: 0.20, lat: 40,
       sunHours: 2, skinFrac: 0.25, skinType: 3,
-      dietIU: 400, supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 }
+      dietIU: 400, supplements: [{ type: 'none', doseIU: 1000, hourOfDay: 8, durationWeeks: 52 }]
     },
     obese: {
       name: 'Obese', weightKg: 120, fatFrac: 0.40, lat: 40,
       sunHours: 2, skinFrac: 0.25, skinType: 3,
-      dietIU: 400, supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 }
+      dietIU: 400, supplements: [{ type: 'none', doseIU: 1000, hourOfDay: 8, durationWeeks: 52 }]
     },
     indoor: {
       name: 'Indoor', weightKg: 75, fatFrac: 0.20, lat: 40,
       sunHours: 0, skinFrac: 0.25, skinType: 3,
-      dietIU: 400, supplement: { type: 'none', doseIU: 1000, hourOfDay: 8 }
+      dietIU: 400, supplements: [{ type: 'none', doseIU: 1000, hourOfDay: 8, durationWeeks: 52 }]
     }
   };
 
   function doseEvents(persona, days) {
-    var supp = persona.supplement || { type: 'none' };
     var events = [];
-    if (!supp.type || supp.type === 'none' || !(supp.doseIU > 0)) return events;
-    var step = supp.type === 'weekly' ? 168 : 24;
-    var t0 = Math.min(Math.max(supp.hourOfDay != null ? supp.hourOfDay : 8, 0), 23.999);
+    // Backwards compatibility for older UI/tests
+    var supps = persona.supplements || [];
+    if (supps.length === 0 && persona.supplement) {
+      supps = [persona.supplement];
+    }
+    
+    var currentDay = 0;
     var horizon = days * 24;
-    for (var t = t0; t < horizon; t += step) {
-      events.push({ tHours: t, iu: supp.doseIU, nmol: (supp.doseIU / PARAMS.IU_PER_UG) * PARAMS.NMOL_PER_UG });
+
+    for (var i = 0; i < supps.length; i++) {
+      var s = supps[i];
+      if (!s.type || s.type === 'none' || !(s.doseIU > 0)) {
+        // Even if type is none, we advance time if there's a duration and it's not the last element
+        var duration = s.durationWeeks ? s.durationWeeks * 7 : days;
+        currentDay += duration;
+        continue;
+      }
+      
+      var step = s.type === 'weekly' ? 168 : 24;
+      var t0 = currentDay * 24 + Math.min(Math.max(s.hourOfDay != null ? s.hourOfDay : 8, 0), 23.999);
+      
+      // If it's the last period, let it run until the end of the simulation horizon
+      var durationDays = (i === supps.length - 1 && !s.durationWeeks) ? days : (s.durationWeeks ? s.durationWeeks * 7 : days);
+      var tEnd = Math.min((currentDay + durationDays) * 24, horizon);
+      
+      for (var t = t0; t < tEnd; t += step) {
+        events.push({ tHours: t, iu: s.doseIU, nmol: (s.doseIU / PARAMS.IU_PER_UG) * PARAMS.NMOL_PER_UG });
+      }
+      
+      currentDay += durationDays;
+      if (currentDay * 24 >= horizon) break;
     }
     return events;
   }
