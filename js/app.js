@@ -11,7 +11,14 @@
   var MAX_PERSONAS = 4;
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var MONTH_LEN = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]; // non-leap year
-  var ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+  var ROMAN = [
+    { text: 'I 🏻', bg: '#fbe2cc' },
+    { text: 'II 🏼', bg: '#e5c298' },
+    { text: 'III 🏽', bg: '#d39965' },
+    { text: 'IV 🏽', bg: '#9d5926' },
+    { text: 'V 🏾', bg: '#5f3312' },
+    { text: 'VI 🏿', bg: '#2a1608' }
+  ];
 
   // ---- State ---------------------------------------------------------------
 
@@ -73,7 +80,8 @@
         return '<option value="' + t + '"' + (supp.type === t ? ' selected' : '') + '>' + t + '</option>';
       }).join('');
       var skinOpts = ROMAN.map(function (r, k) {
-        return '<option value="' + (k + 1) + '"' + (p.skinType === k + 1 ? ' selected' : '') + '>' + r + '</option>';
+        var style = 'background-color:' + r.bg + '; color:' + (k > 2 ? '#fff' : '#000');
+        return '<option value="' + (k + 1) + '" style="' + style + '"' + (p.skinType === k + 1 ? ' selected' : '') + '>' + r.text + '</option>';
       }).join('');
 
       card.innerHTML =
