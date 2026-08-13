@@ -402,7 +402,7 @@
         });
       }
 
-      if (vp.days < 30) {
+      if (vp.days < 90) {
         datasets.push({
           label: name + ' — serum D3 (ng/mL)',
           data: r.d3,
@@ -434,7 +434,7 @@
     });
 
     var scales;
-    if (vp.days >= 30) {
+    if (vp.days >= 90) {
       var dataMax = 0;
       results.forEach(function (r) { r.c25.forEach(function (v) { if (v > dataMax) dataMax = v; }); });
       scales = {
@@ -485,13 +485,13 @@
     });
 
     renderChips(results, vp);
-    axisNoteEl.textContent = vp.days >= 30
+    axisNoteEl.textContent = vp.days >= 90
       ? 'Bands: <20 ng/mL deficient, 20-30 insufficient, 30-50 sufficient; dashed line at 100 ng/mL (upper caution). 1 ng/mL = 2.5 nmol/L. Shaded regions represent 50% interindividual variability.'
       : 'Serum 25(OH)D (solid) and cholecalciferol D3 (dashed) in ng/mL (1 ng/mL = 2.5 nmol/L). Triangles mark supplement doses.';
   }
 
   function renderChips(results, vp) {
-    if (vp.days < 30) { chipsEl.innerHTML = ''; return; }
+    if (vp.days < 90) { chipsEl.innerHTML = ''; return; }
     chipsEl.innerHTML = '';
     results.forEach(function (r, i) {
       var a = r.c25;

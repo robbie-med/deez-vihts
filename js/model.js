@@ -259,11 +259,19 @@
   function simulate(persona, opts) {
     var days = opts.days;
     var startDoy = opts.startDoy != null ? opts.startDoy : 1;
-    var dt = days <= 7 ? 0.1 : 0.5;                 
-    var sampleEvery = days <= 1 ? 5 / 60 : (days <= 7 ? 0.5 : 24); 
-    if (days > 365) {
-      sampleEvery = Math.max(24, Math.round(days / 180) * 24); 
-    }
+    var dt = days <= 7 ? 0.1 : (days <= 30 ? 0.5 : 1.0);
+    // Sample frequently enough to capture weekly dose peaks.
+    // Day:   5 min  (smooth intra-day)
+    // Week:  30 min (shows D3 spikes)
+    // Month: 4 h    (captures weekly peaks, ~180 pts)
+    // Year:  12 h   (captures weekly peaks, ~730 pts)
+    // Multi: 24 h   (performance)
+    var sampleEvery;
+    if (days <= 1)        { sampleEvery = 5 / 60; }
+    else if (days <= 7)   { sampleEvery = 0.5; }
+    else if (days <= 31)  { sampleEvery = 4; }
+    else if (days <= 366) { sampleEvery = 12; }
+    else                  { sampleEvery = Math.max(24, Math.round(days / 180) * 24); }
 
     // State (nmol)
     var state = {
@@ -296,6 +304,20 @@
     var nSteps = Math.round(days * 24 / dt);
     var sampleEverySteps = Math.max(1, Math.round(sampleEvery / dt));
 
+    // Build a set of "forced" sample times: 4h after each dose (near D3 peak)
+    // This ensures dose peaks are always visible regardless of sampleEvery.
+    var forcedSampleSet = {};
+    if (days > 7) {
+      var evts = doseEvents(persona, days);
+      for (var fi = 0; fi < evts.length; fi++) {
+        var peakT = evts[fi].tHours + 4; // ~4h post-dose is near D3 Cmax
+        var nearestStep = Math.round(peakT / dt);
+        if (nearestStep >= 0 && nearestStep <= nSteps) {
+          forcedSampleSet[nearestStep] = true;
+        }
+      }
+    }
+
     var tHours = [], c25 = [], d3 = [], dailySkinUg = [];
     var currentDay = -1;
     var dailySkinTotal = 0;
@@ -326,7 +348,7 @@
         nextDose++;
       }
 
-      if (i % sampleEverySteps === 0 || i === nSteps) {
+      if (i % sampleEverySteps === 0 || i === nSteps || forcedSampleSet[i]) {
         tHours.push(t);
         var c25_ngml = (state.C25_c / PARAMS.V_C_25) / PARAMS.NMOL_PER_UG;
         c25.push(c25_ngml);
