@@ -117,6 +117,7 @@
           field('Skin exposed (fraction)', 'skinFrac', 'type="number" min="0" max="1" step="0.05" value="' + p.skinFrac + '"') +
           '<div class="field"><label>Fitzpatrick skin type</label><select data-prop="skinType">' + skinOpts + '</select></div>' +
           field('Dietary base (IU/d)', 'dietIU', 'type="number" min="0" max="10000" step="100" value="' + (p.dietIU != null ? p.dietIU : 400) + '"') +
+          field('Starting 25(OH)D (ng/mL)', 'starting25OHD', 'type="number" min="1" max="300" step="0.5" placeholder="Auto (Diet+Sun)" value="' + (p.starting25OHD || '') + '"') +
         '</div>' +
         '<details class="advanced-params"><summary>Advanced Environmental Parameters</summary>' +
         '<div class="grid" style="margin-top: 0.5rem;">' +

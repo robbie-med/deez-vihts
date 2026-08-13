@@ -231,6 +231,31 @@
     }
   }
 
+  function resolveBaselineDiet(targetNgml, persona) {
+    var lowIU = 0;
+    var highIU = 50000;
+    var bestIU = 400;
+    for (var iter = 0; iter < 20; iter++) {
+      var midIU = (lowIU + highIU) / 2;
+      var testPersona = Object.assign({}, persona, { dietIU: midIU, sunHours: 0 });
+      var testState = { G: 0, S_pre: 0, D3_c: 0, D3_p: 0, C25_c: 0, C25_p: 0, E: 1.0 };
+      burnIn(testPersona, testState);
+      var c25_ngml = (testState.C25_c / PARAMS.V_C_25) / PARAMS.NMOL_PER_UG;
+      
+      if (Math.abs(c25_ngml - targetNgml) < 0.1) {
+        bestIU = midIU;
+        break;
+      }
+      if (c25_ngml < targetNgml) {
+        lowIU = midIU;
+      } else {
+        highIU = midIU;
+      }
+      bestIU = midIU;
+    }
+    return bestIU;
+  }
+
   function simulate(persona, opts) {
     var days = opts.days;
     var startDoy = opts.startDoy != null ? opts.startDoy : 1;
@@ -251,8 +276,15 @@
       E: 1.0
     };
 
-    // Initialize to physiological steady state based on lifestyle
-    burnIn(persona, state);
+    // Initialize to physiological steady state
+    var parsedStarting = parseFloat(persona.starting25OHD);
+    if (!isNaN(parsedStarting) && parsedStarting > 0) {
+      var baselineDiet = resolveBaselineDiet(parsedStarting, persona);
+      var burnInPersona = Object.assign({}, persona, { dietIU: baselineDiet, sunHours: 0 });
+      burnIn(burnInPersona, state);
+    } else {
+      burnIn(persona, state);
+    }
 
     var diet_nmol_h = (persona.dietIU / PARAMS.IU_PER_UG) * PARAMS.NMOL_PER_UG / 24;
     var fatRatio = (persona.weightKg * persona.fatFrac) / (PARAMS.WEIGHT_REF * PARAMS.FAT_FRAC_REF);
