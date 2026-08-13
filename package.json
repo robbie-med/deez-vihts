@@ -4,7 +4,12 @@
   "private": true,
   "description": "Interactive vitamin D pharmacokinetic simulator (static web app, no build step).",
   "scripts": {
+    "build": "node scripts/build-explanation.mjs",
     "test": "node --test \"test/*.test.mjs\"",
     "scenarios": "node scripts/run-scenarios.mjs"
+  },
+  "dependencies": {
+    "marked": "^18.0.9",
+    "marked-katex-extension": "^5.1.10"
   }
 }
