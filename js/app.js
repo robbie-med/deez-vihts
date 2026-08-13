@@ -106,7 +106,10 @@
       card.innerHTML =
         '<div class="card-head">' +
           '<input class="name" data-prop="name" value="' + escapeHtml(p.name) + '" maxlength="24">' +
-          '<button class="small danger" data-action="remove" title="Remove persona">Remove</button>' +
+          '<div>' +
+            '<button class="small" data-action="duplicate" title="Duplicate persona">Copy</button>' +
+            '<button class="small danger" data-action="remove" title="Remove persona" style="margin-left: 4px;">Remove</button>' +
+          '</div>' +
         '</div>' +
         '<div class="grid">' +
           field('Age', 'age', 'type="number" min="1" max="120" step="1" value="' + (p.age || 40) + '"') +
@@ -206,6 +209,16 @@
       state.personas[i] = Model.defaultPersona({ name: 'Persona ' + (i + 1) });
       renderCards();
       scheduleRun();
+    } else if (btn.dataset.action === 'duplicate') {
+      if (state.personas.length < MAX_PERSONAS) {
+        var copy = JSON.parse(JSON.stringify(state.personas[i]));
+        copy.name = copy.name + ' (Copy)';
+        state.personas.splice(i + 1, 0, copy);
+        renderCards();
+        scheduleRun();
+      } else {
+        alert("Maximum of " + MAX_PERSONAS + " personas allowed.");
+      }
     } else if (btn.dataset.action === 'remove' && state.personas.length > 1) {
       state.personas.splice(i, 1);
       renderCards();
