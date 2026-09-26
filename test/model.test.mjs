@@ -12,122 +12,161 @@ function last(arr) {
   return arr[arr.length - 1];
 }
 
-// --- Calibration target 1 -------------------------------------------------
-// Normal persona (75 kg, 20% fat), 1000 IU/day orally for 180 days starting
-// at 20 ng/mL: serum 25(OH)D should rise by roughly 8-12 ng/mL.
-test('1000 IU/day for 180 days raises 25(OH)D by 8-12 ng/mL', () => {
-  const p = Model.defaultPersona({
-    sunHours: 0,
-    start25: 20,
-    supplement: { type: 'daily', doseIU: 1000, hourOfDay: 8 }
-  });
-  const r = Model.simulate(p, { startDoy: 1, days: 180 });
-  const rise = last(r.c25) - 20;
+function run(overrides, days, startDoy = 1) {
+  return Model.simulate(Model.defaultPersona(overrides), { days, startDoy });
+}
+
+function daily(doseIU, weeks = 104) {
+  return [{ type: 'daily', doseIU, hourOfDay: 8, durationWeeks: weeks }];
+}
+
+function skinIU(overrides, doy) {
+  return Model.dailySkinSynthesisUg(Model.defaultPersona(overrides), doy) * IU_PER_UG;
+}
+
+// --- Calibration ------------------------------------------------------------
+
+// Heaney 2003: ~1 ng/mL per 100 IU/day. From a ~20-30 ng/mL baseline, 1000 IU/day
+// for 180 days should add roughly 8-12 ng/mL over an unsupplemented control.
+test('1000 IU/day for 180 days adds 8-12 ng/mL over control', () => {
+  const base = { sunHours: 0, dietIU: 1500 };
+  const control = last(run(base, 180).c25);
+  const dosed = last(run({ ...base, supplements: daily(1000) }, 180).c25);
+  const rise = dosed - control;
+  assert.ok(control > 18 && control < 30, `control was ${control.toFixed(1)}`);
   assert.ok(rise >= 8 && rise <= 12, `rise was ${rise.toFixed(2)} ng/mL`);
 });
 
-// --- Calibration target 2 -------------------------------------------------
-// Obese persona (120 kg, 40% fat), same dose: the dose-attributable rise
-// (end level minus an unsupplemented control run) should be roughly half of
-// the normal persona's (cf. Wortsman 2000, ~50% attenuation in obesity).
-test('obese persona responds with roughly half the rise of the normal persona', () => {
-  function endWith(persona, dosed) {
-    const p = Model.defaultPersona({
-      ...persona,
-      sunHours: 0,
-      start25: 20,
-      supplement: dosed
-        ? { type: 'daily', doseIU: 1000, hourOfDay: 8 }
-        : { type: 'none' }
-    });
-    return last(Model.simulate(p, { startDoy: 1, days: 180 }).c25);
+// Drincic 2012: volumetric dilution, ~1/weight (75/120 = 0.63), moderated here
+// by lower CYP24A1 induction at the lower concentration.
+test('120 kg persona responds with 55-80% of the 75 kg rise', () => {
+  function rise(weightKg) {
+    const base = { weightKg, sunHours: 0 };
+    return last(run({ ...base, supplements: daily(1000) }, 180).c25) - last(run(base, 180).c25);
   }
-  const normal = { weightKg: 75, fatFrac: 0.20 };
-  const obese = { weightKg: 120, fatFrac: 0.40 };
-  const riseNormal = endWith(normal, true) - endWith(normal, false);
-  const riseObese = endWith(obese, true) - endWith(obese, false);
-  const ratio = riseObese / riseNormal;
-  assert.ok(ratio >= 0.35 && ratio <= 0.65, `ratio was ${ratio.toFixed(2)} (${riseObese.toFixed(2)} vs ${riseNormal.toFixed(2)})`);
+  const ratio = rise(120) / rise(75);
+  assert.ok(ratio >= 0.55 && ratio <= 0.8, `ratio was ${ratio.toFixed(2)}`);
 });
 
-// --- Calibration target 3 -------------------------------------------------
-// With no inputs, 25(OH)D must decay with a ~3-week half-life.
-test('no inputs: 25(OH)D decays with ~21 day half-life', () => {
-  const p = Model.defaultPersona({ sunHours: 0, start25: 32 });
-  const r = Model.simulate(p, { startDoy: 1, days: 42 });
-  // After exactly 21 days (504 h) the level should have halved.
-  const idx = r.tHours.findIndex((t) => Math.abs(t - 21 * 24) < 1e-6);
-  assert.ok(idx >= 0, 'no sample at t = 21 days');
-  const expected = 16;
-  assert.ok(Math.abs(r.c25[idx] - expected) < 0.75, `c25 at day 21 was ${r.c25[idx].toFixed(2)}`);
-  assert.ok(last(r.c25) < 9, `c25 at day 42 was ${last(r.c25).toFixed(2)}`);
+test('no inputs: 25(OH)D half-life is ~3-4 weeks', () => {
+  const r = run({ sunHours: 0, dietIU: 0, starting25OHD: 32 }, 90);
+  assert.equal(r.c25[0], 32);
+  const idx = r.c25.findIndex((v) => v <= 16);
+  const halfLifeDays = r.tHours[idx] / 24;
+  assert.ok(halfLifeDays >= 18 && halfLifeDays <= 30, `half-life was ${halfLifeDays.toFixed(1)} days`);
+  assert.ok(r.fit.limited, 'zero-input persona should be flagged as unable to sustain the level');
 });
 
-// --- Calibration target 4 -------------------------------------------------
-// Vitamin D winter: at lat 60 in January, daily skin synthesis ~ 0; and the
-// equator at June noon gets more effective UVB than lat 60 at June noon.
-test('vitamin D winter at lat 60 in January; equator June noon beats lat 60 June noon', () => {
-  const p = Model.defaultPersona({ lat: 60, sunHours: 4, skinFrac: 0.25, skinType: 1 });
-  const janUg = Model.dailySkinSynthesisUg(p, 15); // mid-January
-  const janIU = janUg * IU_PER_UG;
-  assert.ok(janIU < 200, `lat 60 January synthesis was ${janIU.toFixed(0)} IU/day`);
+// --- Measured starting level --------------------------------------------------
 
-  const pSummer = Model.defaultPersona({ lat: 35, sunHours: 2, skinFrac: 0.25, skinType: 3 });
-  const junUg = Model.dailySkinSynthesisUg(pSummer, 172);
-  assert.ok(janUg < 0.05 * junUg, `lat 60 Jan (${janUg.toFixed(1)} ug) not negligible vs lat 35 Jun (${junUg.toFixed(1)} ug)`);
-
-  const eqJune = Solar.uvbFactor(0, 172, 12);
-  const northJune = Solar.uvbFactor(60, 172, 12);
-  assert.ok(eqJune > northJune, `equator June noon uvb ${eqJune.toFixed(3)} <= lat60 ${northJune.toFixed(3)}`);
+test('a profoundly low starter stays low without supplements', () => {
+  for (const fitMode of ['response', 'exposure']) {
+    const r = run({ starting25OHD: 5, fitMode }, 730);
+    assert.ok(Math.abs(r.c25[0] - 5) < 0.3, `${fitMode}: start was ${r.c25[0].toFixed(2)}`);
+    const max = Math.max(...r.c25);
+    assert.ok(max < 15, `${fitMode}: peaked at ${max.toFixed(1)} ng/mL`);
+    assert.ok(Math.abs(last(r.c25) - 5) < 1, `${fitMode}: ended at ${last(r.c25).toFixed(1)}`);
+    assert.ok(!r.fit.limited && r.fit.factor < 1);
+  }
 });
 
-// --- Behavioural checks ---------------------------------------------------
-
-test('more sun hours leads to higher 25(OH)D', () => {
-  const base = { lat: 40, skinFrac: 0.25, skinType: 3, start25: 25, supplement: { type: 'none' } };
-  const less = Model.simulate(Model.defaultPersona({ ...base, sunHours: 1 }), { startDoy: 172, days: 60 });
-  const more = Model.simulate(Model.defaultPersona({ ...base, sunHours: 3 }), { startDoy: 172, days: 60 });
-  assert.ok(last(more.c25) > last(less.c25), `3h end ${last(more.c25).toFixed(1)} <= 1h end ${last(less.c25).toFixed(1)}`);
+test('fit mode decides how a low starter responds to supplements', () => {
+  const supp = { starting25OHD: 5, supplements: daily(4000) };
+  const poorResponder = last(run({ ...supp, fitMode: 'response' }, 180).c25);
+  const lowExposure = last(run({ ...supp, fitMode: 'exposure' }, 180).c25);
+  assert.ok(lowExposure > 40, `exposure mode reached ${lowExposure.toFixed(1)}`);
+  assert.ok(poorResponder < 0.7 * lowExposure, `response mode ${poorResponder.toFixed(1)} vs ${lowExposure.toFixed(1)}`);
 });
 
-test('indoor, no-supplement winter persona declines', () => {
-  const p = Model.defaultPersona({ lat: 55, sunHours: 0, start25: 30, supplement: { type: 'none' } });
-  const r = Model.simulate(p, { startDoy: 1, days: 90 });
-  assert.ok(last(r.c25) < 30 - 1, `end was ${last(r.c25).toFixed(2)}`);
-  assert.ok(last(r.c25) < 30 * Math.pow(0.5, 90 / 21) * 1.05 + 0.5, 'declines faster than pure decay plus slack');
+test('a measured level equal to the lifestyle level fits a factor of ~1, at any season', () => {
+  for (const doy of [15, 172]) {
+    const own = run({}, 1, doy).c25[0];
+    const r = run({ starting25OHD: own }, 1, doy);
+    assert.ok(Math.abs(r.fit.factor - 1) < 0.02, `doy ${doy}: factor ${r.fit.factor.toFixed(3)}`);
+  }
 });
 
-test('2 h midday summer sun at lat 35 gives ~3000-6000 IU/day (type III, 25% skin)', () => {
-  const p = Model.defaultPersona({ lat: 35, sunHours: 2, skinFrac: 0.25, skinType: 3 });
-  const iu = Model.dailySkinSynthesisUg(p, 172) * IU_PER_UG;
-  // Spec target: "on the order of 3,000-6,000 IU/day"; allow 10% headroom.
-  assert.ok(iu >= 3000 && iu <= 6600, `summer synthesis was ${iu.toFixed(0)} IU/day`);
+test('a level the inputs cannot sustain starts at the measurement and drifts', () => {
+  const r = run({ sunHours: 0, starting25OHD: 60 }, 180);
+  assert.ok(r.fit.limited);
+  assert.equal(r.c25[0], 60);
+  assert.ok(last(r.c25) < 40, `ended at ${last(r.c25).toFixed(1)}`);
 });
 
-test('no NaN or negative values over a simulated year for all presets', () => {
-  for (const key of Object.keys(Model.PRESETS)) {
-    const p = Model.defaultPersona(Model.PRESETS[key]);
-    const r = Model.simulate(p, { startDoy: 1, days: 365 });
-    for (const series of [r.c25, r.d3, r.calcitriol]) {
-      for (const v of series) {
-        assert.ok(Number.isFinite(v), `${key}: non-finite value ${v}`);
-        assert.ok(v >= 0, `${key}: negative value ${v}`);
-      }
+// --- Skin synthesis -------------------------------------------------------------
+
+test('vitamin D winter: negligible synthesis at high latitude in January', () => {
+  const lat60 = skinIU({ lat: 60, sunHours: 4, skinType: 1 }, 15);
+  assert.ok(lat60 < 50, `lat 60 January: ${lat60.toFixed(0)} IU/day`);
+  const jan = skinIU({ lat: 42 }, 15);
+  const jun = skinIU({ lat: 42 }, 172);
+  assert.ok(jan < 0.1 * jun, `lat 42 Jan ${jan.toFixed(0)} vs Jun ${jun.toFixed(0)} IU/day`);
+});
+
+test('summer synthesis plateaus: 4 h adds little over 30 min', () => {
+  const short = skinIU({ lat: 35, sunHours: 0.5 }, 172);
+  const long = skinIU({ lat: 35, sunHours: 4 }, 172);
+  assert.ok(short > 1000 && long < 3000, `30 min ${short.toFixed(0)}, 4 h ${long.toFixed(0)} IU/day`);
+  assert.ok(long < 1.2 * short, `4 h (${long.toFixed(0)}) vs 30 min (${short.toFixed(0)})`);
+});
+
+test('darker skin needs longer exposure but reaches the same plateau', () => {
+  const brief = (skinType) => skinIU({ lat: 40, sunHours: 0.25, skinType }, 172);
+  const long = (skinType) => skinIU({ lat: 40, sunHours: 3, skinType }, 172);
+  assert.ok(brief(6) < 0.6 * brief(1), `15 min: VI ${brief(6).toFixed(0)} vs I ${brief(1).toFixed(0)}`);
+  assert.ok(long(6) > 0.9 * long(1), `3 h: VI ${long(6).toFixed(0)} vs I ${long(1).toFixed(0)}`);
+});
+
+test('sunscreen reduces synthesis', () => {
+  const bare = skinIU({ sunHours: 0.5 }, 172);
+  const spf30 = skinIU({ sunHours: 0.5, envOpts: { spf: 30 } }, 172);
+  assert.ok(spf30 < 0.25 * bare, `SPF 30 ${spf30.toFixed(0)} vs bare ${bare.toFixed(0)} IU/day`);
+});
+
+test('outdoor persona has a seasonal cycle peaking in late summer', () => {
+  const r = run({}, 365);
+  const max = Math.max(...r.c25);
+  const peakDay = r.tHours[r.c25.indexOf(max)] / 24;
+  assert.ok(max - Math.min(...r.c25) > 10, 'expected a clear seasonal swing');
+  assert.ok(peakDay > 180 && peakDay < 270, `peak on day ${peakDay.toFixed(0)}`);
+});
+
+// --- Robustness ---------------------------------------------------------------
+
+test('no NaN or negative values, and band brackets the curve', () => {
+  const cases = Object.keys(Model.PRESETS).map((k) => Model.PRESETS[k]);
+  cases.push({ starting25OHD: 1 }, { starting25OHD: 150 }, { starting25OHD: 3, fitMode: 'exposure' },
+    { starting25OHD: 2, supplements: [{ type: 'weekly', doseIU: 50000, hourOfDay: 8, durationWeeks: 8 }] });
+  for (const c of cases) {
+    const r = run(c, 365);
+    for (const series of [r.c25, r.c25_low, r.c25_high, r.d3]) {
+      for (const v of series) assert.ok(Number.isFinite(v) && v >= 0, `${JSON.stringify(c)}: bad value ${v}`);
     }
-    assert.ok(r.tHours.length >= 365, `${key}: expected daily samples, got ${r.tHours.length}`);
+    for (let i = 0; i < r.c25.length; i++) {
+      assert.ok(r.c25_low[i] <= r.c25[i] + 1e-9 && r.c25[i] <= r.c25_high[i] + 1e-9, `${JSON.stringify(c)}: band inverted at ${i}`);
+    }
+    assert.ok(r.tHours.length >= 365);
   }
 });
 
-// --- Solar module sanity checks ------------------------------------------
-
-test('uvb factor is 1.0 at the normalization condition and 0 below horizon', () => {
-  const noon = Solar.uvbFactor(35, 172, 12);
-  assert.ok(Math.abs(noon - 1) < 1e-9, `normalization uvb was ${noon}`);
-  assert.equal(Solar.uvbFactor(35, 172, 0), 0); // midnight
-  assert.equal(Solar.uvbFactor(80, 355, 12), 0); // polar night
+test('with a measured start, the band starts at the measurement', () => {
+  const r = run({ starting25OHD: 12 }, 90);
+  assert.equal(r.c25_low[0], r.c25[0]);
+  assert.equal(r.c25_high[0], r.c25[0]);
 });
+
+// --- Solar module ----------------------------------------------------------------
 
 test('solar noon elevation: ~78.4 deg at lat 35 on June 21', () => {
   const el = Solar.elevationDeg(35, 172, 12);
   assert.ok(Math.abs(el - (90 - Math.abs(35 - 23.44))) < 0.5, `elevation was ${el.toFixed(2)}`);
+});
+
+test('UV index is zero at night and in polar night; plateau factor is 1 under high sun', () => {
+  assert.equal(Solar.uvIndex(35, 172, 0), 0);
+  assert.equal(Solar.uvIndex(80, 355, 12), 0);
+  assert.equal(Solar.previtaminFactor(80, 355, 12), 0);
+  assert.equal(Solar.previtaminFactor(20, 172, 12), 1);
+  const uvi = Solar.uvIndex(0, 80, 12);
+  assert.ok(uvi > 10 && uvi < 14, `equinox equator noon UVI ${uvi.toFixed(1)}`);
 });

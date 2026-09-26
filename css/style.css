@@ -305,6 +305,14 @@ details.advanced-params summary {
   margin-top: 12px;
 }
 
+.fit-note {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.fit-note:empty { display: none; }
+.fit-note.warn { color: var(--danger); }
+
 /* Main Panel */
 section.main-panel {
   flex: 1;

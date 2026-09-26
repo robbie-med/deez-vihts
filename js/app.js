@@ -103,6 +103,10 @@
         return '<option value="' + (k + 1) + '" style="' + style + '"' + (p.skinType === k + 1 ? ' selected' : '') + '>' + r.text + '</option>';
       }).join('');
 
+      var fitOpts = [['response', 'Dose response (all inputs)'], ['exposure', 'Sun + diet only']].map(function (o) {
+        return '<option value="' + o[0] + '"' + ((p.fitMode || 'response') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>';
+      }).join('');
+
       card.innerHTML =
         '<div class="card-head">' +
           '<input class="name" data-prop="name" value="' + escapeHtml(p.name) + '" maxlength="24">' +
@@ -114,14 +118,15 @@
         '<div class="grid">' +
           field('Age', 'age', 'type="number" min="1" max="120" step="1" value="' + (p.age || 40) + '"') +
           field('Weight (kg)', 'weightKg', 'type="number" min="30" max="300" step="1" value="' + p.weightKg + '"') +
-          field('Body fat (%)', 'fatPct', 'type="number" min="3" max="70" step="1" value="' + Math.round(p.fatFrac * 100) + '"') +
           field('Latitude (deg, S negative)', 'lat', 'type="number" min="-90" max="90" step="1" value="' + p.lat + '"') +
           field('Sun (h/day, centered on noon)', 'sunHours', 'type="number" min="0" max="12" step="0.25" value="' + p.sunHours + '"') +
           field('Skin exposed (fraction)', 'skinFrac', 'type="number" min="0" max="1" step="0.05" value="' + p.skinFrac + '"') +
           '<div class="field"><label>Fitzpatrick skin type</label><select data-prop="skinType">' + skinOpts + '</select></div>' +
           field('Dietary base (IU/d)', 'dietIU', 'type="number" min="0" max="10000" step="100" value="' + (p.dietIU != null ? p.dietIU : 400) + '"') +
-          field('Starting 25(OH)D (ng/mL)', 'starting25OHD', 'type="number" min="1" max="300" step="0.5" placeholder="Auto (Diet+Sun)" value="' + (p.starting25OHD || '') + '"') +
+          field('Measured 25(OH)D at start (ng/mL)', 'starting25OHD', 'type="number" min="1" max="300" step="0.5" placeholder="Auto (Diet+Sun)" value="' + (p.starting25OHD || '') + '"') +
+          '<div class="field"><label>Explain measured level by</label><select data-prop="fitMode"' + (p.starting25OHD ? '' : ' disabled') + '>' + fitOpts + '</select></div>' +
         '</div>' +
+        '<div class="fit-note" data-fit-note></div>' +
         '<details class="advanced-params"><summary>Advanced Environmental Parameters</summary>' +
         '<div class="grid" style="margin-top: 0.5rem;">' +
           field('Cloud Cover (0-1)', 'envOpts.cloudCover', 'type="number" min="0" max="1" step="0.1" value="' + (p.envOpts?.cloudCover || 0) + '"') +
@@ -155,7 +160,13 @@
     if (!p.envOpts) p.envOpts = { cloudCover: 0, altitudeKm: 0, spf: 1 };
 
     if (prop === 'name') { p.name = ev.target.value; }
-    else if (prop === 'fatPct') { p.fatFrac = clampNum(ev.target.value, 3, 70, 20) / 100; }
+    else if (prop === 'fitMode') { p.fitMode = ev.target.value; }
+    else if (prop === 'starting25OHD') {
+      var v = parseFloat(ev.target.value);
+      p.starting25OHD = v > 0 ? v : null;
+      var sel = card.querySelector('select[data-prop="fitMode"]');
+      if (sel) sel.disabled = !p.starting25OHD;
+    }
     else if (prop.indexOf('supp.') === 0) {
       var parts = prop.split('.');
       var idx = parseInt(parts[1], 10);
@@ -485,8 +496,9 @@
     });
 
     renderChips(results, vp);
+    renderFitNotes(results);
     axisNoteEl.textContent = vp.days >= 90
-      ? 'Bands: <20 ng/mL deficient, 20-30 insufficient, 30-50 sufficient; dashed line at 100 ng/mL (upper caution). 1 ng/mL = 2.5 nmol/L. Shaded regions represent 50% interindividual variability.'
+      ? 'Bands: <20 ng/mL deficient, 20-30 insufficient, 30-50 sufficient; dashed line at 100 ng/mL (upper caution). 1 ng/mL = 2.5 nmol/L. Shading spans the same persona as a 0.8x to 1.25x responder.'
       : 'Serum 25(OH)D (solid) and cholecalciferol D3 (dashed) in ng/mL (1 ng/mL = 2.5 nmol/L). Triangles mark supplement doses.';
   }
 
@@ -507,6 +519,29 @@
         '<span class="vals">min ' + min.toFixed(1) + ' / mean ' + mean.toFixed(1) +
         ' / max ' + max.toFixed(1) + ' / end ' + end.toFixed(1) + ' ng/mL</span>';
       chipsEl.appendChild(chip);
+    });
+  }
+
+  // What the model inferred from a measured starting level.
+  function describeFit(fit) {
+    if (!fit) return '';
+    var what = fit.mode === 'exposure' ? 'effective sun + diet' : 'dose response';
+    var txt = 'Measured ' + fit.target.toFixed(1) + ' ng/mL implies ' + what + ' \u00d7' + fit.factor.toFixed(2) + ' of typical.';
+    if (fit.limited) {
+      txt = fit.lifestyleLevel < 0.05
+        ? 'Diet + sun provide no vitamin D, so the level decays from the measured ' + fit.target.toFixed(1) + ' ng/mL.'
+        : 'These inputs can only sustain ~' + fit.lifestyleLevel.toFixed(1) + ' ng/mL (' + what + ' \u00d7' +
+          fit.factor.toFixed(2) + ' is the limit), so the level drifts from the measured ' + fit.target.toFixed(1) + '.';
+    }
+    return txt;
+  }
+
+  function renderFitNotes(results) {
+    var notes = cardsEl.querySelectorAll('[data-fit-note]');
+    results.forEach(function (r, i) {
+      if (!notes[i]) return;
+      notes[i].textContent = describeFit(r.fit);
+      notes[i].classList.toggle('warn', !!(r.fit && r.fit.limited));
     });
   }
 

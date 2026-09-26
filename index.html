@@ -61,10 +61,11 @@
       <div class="body">
         <h4>Semi-Empirical Educational Simulator</h4>
         <ul>
-          <li><b>Dual Nonlinearity:</b> Employs saturable Michaelis-Menten kinetics for 25-hydroxylation (CYP2R1) combined with an indirect-response model for CYP24A1 induction, preventing infinite physiological accumulation.</li>
-          <li><b>Mass-Balanced Engine:</b> Operates strictly in moles (nmol) with explicit distribution volumes, ensuring exact mass conservation across 7 physiological compartments.</li>
-          <li><b>Mechanistic Adipose Exchange:</b> Uses dynamic tissue partition coefficients and perfusion-limited exchange, properly reflecting the volumetric dilution seen in higher BMI groups.</li>
-          <li><b>Clear-Sky UV Index:</b> Solar synthesis is driven by an empirical UV-Index approximation accounting for latitude, zenith angle, altitude, and cloud cover.</li>
+          <li><b>Measured level is a trait:</b> a measured starting 25(OH)D is explained by a persistent individual factor (dose response, or effective sun + diet) fitted so your own inputs sustain it at the start date's season. It does not wash out.</li>
+          <li><b>Skin plateau:</b> previtamin D3 approaches a photo-equilibrium within about one minimal erythemal dose, so extra time in strong sun adds little. Darker skin and sunscreen slow the approach; low winter sun lowers the plateau itself (vitamin D winter).</li>
+          <li><b>Body size:</b> volumes and clearances scale with body weight (volumetric dilution), so the same input gives a lower level in a larger body.</li>
+          <li><b>Nonlinear metabolism:</b> saturable 25-hydroxylation (CYP2R1, matters for large boluses) and CYP24A1 induction (clearance rises with 25(OH)D).</li>
+          <li><b>Clear-Sky UV Index:</b> solar input from latitude, date, time, altitude and cloud cover.</li>
         </ul>
         <div class="disclaimer">
           <strong>WARNING:</strong> This is an educational tool and has not been fully externally validated against regulatory datasets. Parameters are population-average approximations. Do not use this tool to plan supplementation.

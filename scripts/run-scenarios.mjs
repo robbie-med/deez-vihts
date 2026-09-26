@@ -10,85 +10,84 @@ const Model = require('../js/model.js');
 
 const IU_PER_UG = 40;
 
+function run(overrides, days, startDoy = 1) {
+  return Model.simulate(Model.defaultPersona(overrides), { days, startDoy });
+}
+function daily(doseIU, weeks = 104) {
+  return [{ type: 'daily', doseIU, hourOfDay: 8, durationWeeks: weeks }];
+}
 function stats(r) {
   const a = r.c25;
-  const min = Math.min(...a);
-  const max = Math.max(...a);
-  const mean = a.reduce((s, v) => s + v, 0) / a.length;
-  return { min, mean, max, end: a[a.length - 1] };
+  return {
+    min: Math.min(...a),
+    mean: a.reduce((s, v) => s + v, 0) / a.length,
+    max: Math.max(...a),
+    end: a[a.length - 1]
+  };
 }
-
-function fmt(x, d = 1) {
-  return x.toFixed(d);
+function at(r, day) {
+  const i = r.tHours.findIndex((t) => t >= day * 24);
+  return r.c25[i < 0 ? r.c25.length - 1 : i];
 }
+function skinIU(overrides, doy) {
+  return Model.dailySkinSynthesisUg(Model.defaultPersona(overrides), doy) * IU_PER_UG;
+}
+const f = (x, d = 1) => x.toFixed(d);
 
-console.log('=== Scenario A: classic 3-way comparison, full year at lat 40 N ===');
-console.log('(start25 = 25 ng/mL, no supplement; outdoor/obese get 2 h midday sun, 25% skin, type III)');
+console.log('=== Scenario A: classic 3-way comparison, full year at lat 40 N from Jan 1 ===');
+console.log('(no supplement, 400 IU/d diet; outdoor/obese get 2 h midday sun, 25% skin, type III, age 40)');
 for (const key of ['outdoor', 'obese', 'indoor']) {
-  const p = Model.defaultPersona(Model.PRESETS[key]);
-  const r = Model.simulate(p, { startDoy: 1, days: 365 });
+  const r = run(Model.PRESETS[key], 365);
   const s = stats(r);
-  const skinYearUg = r.dailySkinUg.reduce((x, y) => x + y, 0);
-  console.log(
-    `${p.name.padEnd(18)} min ${fmt(s.min)}  mean ${fmt(s.mean)}  max ${fmt(s.max)}  end ${fmt(s.end)} ng/mL` +
-    `  | yearly skin synthesis ${fmt(skinYearUg * IU_PER_UG / 1000, 0)}k IU`
-  );
+  const skinYear = r.dailySkinUg.reduce((x, y) => x + y, 0) * IU_PER_UG;
+  console.log(`${key.padEnd(8)} min ${f(s.min)}  mean ${f(s.mean)}  max ${f(s.max)}  end ${f(s.end)} ng/mL  | skin ${f(skinYear / 1000, 0)}k IU/yr`);
 }
 
-console.log('\n=== Scenario B: seasonal skin synthesis for the Outdoor persona (lat 40) ===');
-const out = Model.defaultPersona(Model.PRESETS.outdoor);
-for (const [label, doy] of [['Jan 15', 15], ['Apr 15', 105], ['Jun 21', 172], ['Oct 15', 288]]) {
-  const ug = Model.dailySkinSynthesisUg(out, doy);
-  console.log(`${label}: ${fmt(ug * IU_PER_UG, 0)} IU/day (${fmt(ug, 1)} ug/day)`);
-}
-
-console.log('\n=== Scenario C: dose response, 1000 IU/day for 180 days, start 20 ng/mL, no sun ===');
-for (const [label, w, f] of [['Normal (75 kg, 20% fat)', 75, 0.20], ['Obese (120 kg, 40% fat)', 120, 0.40]]) {
-  const dosed = Model.simulate(
-    Model.defaultPersona({ weightKg: w, fatFrac: f, sunHours: 0, start25: 20, supplement: { type: 'daily', doseIU: 1000, hourOfDay: 8 } }),
-    { startDoy: 1, days: 180 }
-  );
-  const control = Model.simulate(
-    Model.defaultPersona({ weightKg: w, fatFrac: f, sunHours: 0, start25: 20 }),
-    { startDoy: 1, days: 180 }
-  );
-  const e = dosed.c25[dosed.c25.length - 1];
-  const c = control.c25[control.c25.length - 1];
-  console.log(`${label}: end ${fmt(e)} ng/mL, rise vs start ${fmt(e - 20)}, dose-attributable rise vs control ${fmt(e - c)}`);
-}
-
-console.log('\n=== Scenario D: latitude/season grid of daily skin synthesis (IU/day) ===');
-console.log('(2 h midday window, 25% skin exposed, Fitzpatrick III)');
-const header = ['lat', 'Jan 15', 'Mar 20', 'Jun 21', 'Sep 22', 'Dec 21'];
-console.log(header.join('\t'));
-for (const lat of [0, 20, 35, 40, 50, 60]) {
-  const p = Model.defaultPersona({ lat, sunHours: 2, skinFrac: 0.25, skinType: 3 });
-  const cells = [15, 79, 172, 265, 355].map((doy) => fmt(Model.dailySkinSynthesisUg(p, doy) * IU_PER_UG, 0));
-  console.log([`${lat}`, ...cells].join('\t'));
-}
-
-console.log('\n=== Scenario E: Outdoor persona year at lat 60 N (high-latitude winter) ===');
-const north = Model.defaultPersona({ ...Model.PRESETS.outdoor, lat: 60, name: 'Outdoor lat 60' });
-const rn = Model.simulate(north, { startDoy: 1, days: 365 });
-const sn = stats(rn);
-console.log(`min ${fmt(sn.min)}  mean ${fmt(sn.mean)}  max ${fmt(sn.max)}  end ${fmt(sn.end)} ng/mL`);
-
-console.log('\n=== Scenario F: decay check (no inputs, start 32 ng/mL) ===');
-const rd = Model.simulate(Model.defaultPersona({ sunHours: 0, start25: 32 }), { startDoy: 1, days: 63 });
-for (const d of [0, 21, 42, 63]) {
-  const idx = rd.tHours.findIndex((t) => Math.abs(t - d * 24) < 1e-6);
-  console.log(`day ${d}: ${fmt(rd.c25[idx])} ng/mL`);
-}
-
-console.log('\n=== Scenario G: weekly vs daily dosing (7000 IU once weekly vs 1000 IU daily, 180 days) ===');
-for (const [label, supp] of [
-  ['1000 IU daily', { type: 'daily', doseIU: 1000, hourOfDay: 8 }],
-  ['7000 IU weekly', { type: 'weekly', doseIU: 7000, hourOfDay: 8 }]
+console.log('\n=== Scenario B: measured starting level of 5 ng/mL (outdoor persona, Jan 1) ===');
+for (const [label, extra] of [
+  ['no supplement, response fit', { fitMode: 'response' }],
+  ['no supplement, exposure fit', { fitMode: 'exposure' }],
+  ['4000 IU/d, response fit', { fitMode: 'response', supplements: daily(4000) }],
+  ['4000 IU/d, exposure fit', { fitMode: 'exposure', supplements: daily(4000) }]
 ]) {
-  const r = Model.simulate(
-    Model.defaultPersona({ sunHours: 0, start25: 20, supplement: supp }),
-    { startDoy: 1, days: 180 }
-  );
-  const s = stats(r);
-  console.log(`${label}: mean ${fmt(s.mean)}  end ${fmt(s.end)} ng/mL  (post-dose swing ${fmt(s.max - s.min)} ng/mL peak-to-trough over whole run)`);
+  const r = run({ starting25OHD: 5, ...extra }, 730);
+  const cells = [0, 90, 180, 270, 365, 730].map((d) => `d${d} ${f(at(r, d))}`).join('  ');
+  console.log(`${label.padEnd(30)} factor ${f(r.fit.factor, 2)}  | ${cells}`);
 }
+
+console.log('\n=== Scenario C: dose response, 1000 IU/day for 180 days, no sun ===');
+for (const [label, w, diet] of [['75 kg, 1500 IU/d diet', 75, 1500], ['75 kg, 400 IU/d diet', 75, 400], ['120 kg, 400 IU/d diet', 120, 400]]) {
+  const base = { weightKg: w, sunHours: 0, dietIU: diet };
+  const c = run(base, 180).c25.at(-1);
+  const e = run({ ...base, supplements: daily(1000) }, 180).c25.at(-1);
+  console.log(`${label.padEnd(24)} control ${f(c)}  dosed ${f(e)}  dose-attributable rise ${f(e - c)} ng/mL`);
+}
+
+console.log('\n=== Scenario D: daily skin synthesis (IU/day) by latitude and date ===');
+console.log('(2 h midday window, 25% skin, type III, age 40, repeated daily)');
+console.log(['lat', 'Jan 15', 'Mar 20', 'Jun 21', 'Sep 22', 'Dec 21'].join('\t'));
+for (const lat of [0, 20, 35, 40, 50, 60]) {
+  console.log([`${lat}`, ...[15, 79, 172, 265, 355].map((doy) => f(skinIU({ lat }, doy), 0))].join('\t'));
+}
+
+console.log('\n=== Scenario E: exposure time, skin type and sunscreen (lat 40, Jun 21) ===');
+console.log('minutes\t' + [1, 3, 6].map((t) => `type ${t}`).join('\t') + '\ttype III SPF 15');
+for (const min of [10, 20, 30, 60, 120, 240]) {
+  const h = min / 60;
+  console.log([min, ...[1, 3, 6].map((t) => f(skinIU({ sunHours: h, skinType: t }, 172), 0)),
+    f(skinIU({ sunHours: h, envOpts: { spf: 15 } }, 172), 0)].join('\t'));
+}
+
+console.log('\n=== Scenario F: decay (no inputs, measured 32 ng/mL) ===');
+const rd = run({ sunHours: 0, dietIU: 0, starting25OHD: 32 }, 63);
+console.log([0, 21, 42, 63].map((d) => `day ${d}: ${f(at(rd, d))}`).join('  '));
+
+console.log('\n=== Scenario G: loading then maintenance (50,000 IU weekly x 8 wk, then 1000 IU/d), start 12 ng/mL indoor ===');
+const rl = run({
+  sunHours: 0, starting25OHD: 12, fitMode: 'exposure',
+  supplements: [
+    { type: 'weekly', doseIU: 50000, hourOfDay: 8, durationWeeks: 8 },
+    { type: 'daily', doseIU: 1000, hourOfDay: 8, durationWeeks: 44 }
+  ]
+}, 365);
+console.log([0, 28, 56, 90, 180, 365].map((d) => `day ${d}: ${f(at(rl, d))}`).join('  '));

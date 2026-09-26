@@ -63,7 +63,22 @@
     return baseUVI;
   }
 
+  /*
+   * Fraction of the maximal previtamin D3 photoequilibrium reachable at this
+   * solar elevation. At low sun, ozone's longer slant path strips the short
+   * UVB wavelengths that form previtamin D3 faster than the longer ones that
+   * photoconvert it to lumisterol/tachysterol, so the plateau collapses
+   * (the "vitamin D winter": none formed at 42 N Nov-Feb, Webb 1988).
+   * Empirical: (sin(elevation) / 0.9)^4, capped at 1.
+   */
+  function previtaminFactor(latDeg, doy, hourSolar) {
+    var s = sinElevation(latDeg, doy, hourSolar);
+    if (s <= 0) return 0;
+    return Math.min(1, Math.pow(s / 0.9, 4));
+  }
+
   var Solar = {
+    previtaminFactor: previtaminFactor,
     declinationDeg: declinationDeg,
     sinElevation: sinElevation,
     elevationDeg: elevationDeg,
